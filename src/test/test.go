@@ -12,7 +12,7 @@ import (
 )
 
 func init1() {
-	rand.Seed(time.Now().UnixNano())
+	rand.Seed(1)
 }
 
 var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
@@ -70,17 +70,17 @@ func main() {
 			go nodes[index].Fix_fingers()
 			go nodes[index].CheckPredecessor()
 			joined[index] = true
-			time.Sleep(3 * time.Second)
+			time.Sleep(1 * time.Second)
 			fmt.Println("port ", port, " joined at 1000")
 		}
 		nodecnt += 15
-		time.Sleep(30 * time.Second)
+		time.Sleep(4 * time.Second)
 		//put 300 kv
 		for j := 0; j < 300; j++ {
 			k := RandStringRunes(30)
 			v := RandStringRunes(30)
 			kvMap[k] = v
-			nodes[rand.Intn(nodecnt+1)+i*5].Put(k, v)
+			nodes[rand.Intn(nodecnt)+i*5].Put(k, v)
 		}
 		//get 200 kv and check correctness
 		var keyList [200]string
@@ -89,7 +89,7 @@ func main() {
 			if cnt == 200 {
 				break
 			}
-			fetchedVal, _ := nodes[rand.Intn(nodecnt+1)+i*5].Get(k)
+			fetchedVal, _ := nodes[rand.Intn(nodecnt)+i*5].Get(k)
 			if fetchedVal != v {
 				log.Fatal("actual: ", fetchedVal, " expected: ", v)
 			}
@@ -99,7 +99,7 @@ func main() {
 		//delete 150 kv
 		for j := 0; j < 150; j++ {
 			delete(kvMap, keyList[j])
-			nodes[rand.Intn(nodecnt+1)+i*5].Delete(keyList[j])
+			nodes[rand.Intn(nodecnt)+i*5].Delete(keyList[j])
 		}
 		//quit 5 nodes
 		for j := 0; j < 5; j++ {
@@ -107,13 +107,13 @@ func main() {
 			time.Sleep(3 * time.Second)
 		}
 		nodecnt -= 5
-		time.Sleep(30 * time.Second)
+		time.Sleep(4 * time.Second)
 		//put 300 kv
 		for j := 0; j < 300; j++ {
 			k := RandStringRunes(30)
 			v := RandStringRunes(30)
 			kvMap[k] = v
-			nodes[rand.Intn(nodecnt+1)+i*5+5].Put(k, v)
+			nodes[rand.Intn(nodecnt)+i*5+5].Put(k, v)
 		}
 		//get 200 kv and check correctness
 
@@ -122,7 +122,7 @@ func main() {
 			if cnt == 200 {
 				break
 			}
-			fetchedVal, _ := nodes[rand.Intn(nodecnt+1)+i*5+5].Get(k)
+			fetchedVal, _ := nodes[rand.Intn(nodecnt)+i*5+5].Get(k)
 			if fetchedVal != v {
 				log.Fatal("actual: ", fetchedVal, " expected: ", v)
 			}
@@ -132,7 +132,7 @@ func main() {
 		//delete 150 kv
 		for j := 0; j < 150; j++ {
 			delete(kvMap, keyList[j])
-			nodes[rand.Intn(nodecnt+1)+i*5+5].Delete(keyList[j])
+			nodes[rand.Intn(nodecnt)+i*5+5].Delete(keyList[j])
 		}
 	}
 }

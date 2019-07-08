@@ -30,7 +30,7 @@ const (
 
 type FingerType struct {
 	Ip string
-	Id big.Int
+	Id *big.Int
 }
 type Node struct {
 	id          *big.Int
@@ -52,12 +52,14 @@ func (this *Node) Merge(kvpairs *map[string]string, success *bool) error {
 
 //create a new ring
 func (this *Node) Create(port int) {
-	this.predecessor = nil
 	this.ip = GetLocalAddress() + ":" + strconv.Itoa(port)
 	this.id = hashString(this.ip)
 	this.kvStorage.V = make(map[string]string)
 	this.successors[1].Ip = this.ip
-	this.successors[1].Id = *this.id
+	this.successors[1].Id = this.id
+	this.predecessor = new(FingerType)
+	this.predecessor.Ip = this.ip
+	this.predecessor.Id = this.id
 }
 func (this *Node) GetKeyValMap(a *int, b *map[string]string) error {
 	this.kvStorage.mux.Lock()
@@ -89,7 +91,7 @@ func (this *Node) GetWorkingSuccessor() *FingerType {
 		}
 	}
 	if i != 1 {
-		client, err := rpc.DialHTTP("tcp", this.successors[i].Ip)
+		client, err := rpc.Dial("tcp", this.successors[i].Ip)
 		if err != nil {
 			log.Fatal("dialing:", err)
 		}
@@ -111,7 +113,7 @@ func (this *Node) Stabilize() {
 	}
 }
 func (this *Node) stabilize() {
-	client, e := rpc.DialHTTP("tcp", this.GetWorkingSuccessor().Ip)
+	client, e := rpc.Dial("tcp", this.GetWorkingSuccessor().Ip)
 	if e != nil {
 		log.Fatal("dialing:", e)
 	}
@@ -119,14 +121,14 @@ func (this *Node) stabilize() {
 	_ = client.Call("Node.GetPredecessor", 0, &p)
 	client.Close()
 	var tmp big.Int
-	if (p.Ip != "" && p.Id.Cmp(&tmp) != 0) && between(this.id, &p.Id, &this.GetWorkingSuccessor().Id, false) {
+	if (p.Ip != "" && p.Id.Cmp(&tmp) != 0) && between(this.id, p.Id, this.GetWorkingSuccessor().Id, false) {
 		*this.GetWorkingSuccessor() = p
 	}
-	client, e = rpc.DialHTTP("tcp", this.GetWorkingSuccessor().Ip)
+	client, e = rpc.Dial("tcp", this.GetWorkingSuccessor().Ip)
 	if e != nil {
 		log.Fatal("dialing:", e)
 	}
-	_ = client.Call("Node.Notify", &FingerType{this.ip, *this.id}, nil)
+	_ = client.Call("Node.Notify", &FingerType{this.ip, this.id}, nil)
 	var suc_Successors [m + 1]FingerType
 	err := client.Call("Node.GetSuccessors", 0, &suc_Successors)
 	if err != nil {
@@ -145,9 +147,9 @@ func (this *Node) CheckPredecessor() {
 	}
 }
 func (this *Node) Ping(ip string) bool {
-	client, e := rpc.DialHTTP("tcp", ip)
+	client, e := rpc.Dial("tcp", ip)
 	if e != nil {
-		e.Error()
+		fmt.Println(e)
 		return false
 	} else {
 		client.Close()
@@ -177,7 +179,7 @@ func (this *Node) fix_fingers(fingerEntry *int) {
 		*fingerEntry = 1
 	}
 	for {
-		if between(this.id, jump(this.id, *fingerEntry), &fingerFound.Id, true) {
+		if between(this.id, jump(this.id, *fingerEntry), fingerFound.Id, true) {
 			this.finger[*fingerEntry] = fingerFound
 			*fingerEntry++
 			if *fingerEntry > m {
@@ -189,21 +191,21 @@ func (this *Node) fix_fingers(fingerEntry *int) {
 		}
 	}
 }
-func (this *Node) CompleteMigrate(otherNode *FingerType, lala *int) error {
+func (this *Node) CompleteMigrate(otherNode FingerType, lala *int) error {
 	var deletion []string
 	this.kvStorage.mux.Lock()
 	if otherNode.Id.Cmp(this.id) < 0 {
 
 		for k := range this.kvStorage.V {
 			k_hash := hashString(k)
-			if k_hash.Cmp(&otherNode.Id) <= 0 || k_hash.Cmp(&this.predecessor.Id) > 0 {
+			if k_hash.Cmp(otherNode.Id) <= 0 || k_hash.Cmp(this.predecessor.Id) > 0 {
 				deletion = append(deletion, k)
 			}
 		}
 	} else {
 		for k := range this.kvStorage.V {
 			k_hash := hashString(k)
-			if k_hash.Cmp(&otherNode.Id) <= 0 {
+			if k_hash.Cmp(otherNode.Id) <= 0 {
 				deletion = append(deletion, k)
 			}
 		}
@@ -221,7 +223,7 @@ func (this *Node) Join(otherNode string, port int) {
 	this.id = hashString(this.ip)
 	this.kvStorage.V = make(map[string]string)
 	this.predecessor = nil
-	client, e := rpc.DialHTTP("tcp", otherNode)
+	client, e := rpc.Dial("tcp", otherNode)
 	if e != nil {
 		log.Fatal("dialing:", e)
 	}
@@ -230,7 +232,10 @@ func (this *Node) Join(otherNode string, port int) {
 		fmt.Println(err)
 	}
 	client.Close()
-	client, e = rpc.DialHTTP("tcp", this.GetWorkingSuccessor().Ip)
+	client, e = rpc.Dial("tcp", this.GetWorkingSuccessor().Ip)
+	if e != nil {
+		log.Fatal("dialing:", e)
+	}
 	var receivedMap map[string]string
 	var p FingerType
 	client.Call("Node.GetKeyValMap", 0, &receivedMap)
@@ -238,37 +243,35 @@ func (this *Node) Join(otherNode string, port int) {
 	this.kvStorage.mux.Lock()
 	for k, v := range receivedMap {
 		var k_hash = hashString(k)
-		if p.Id.Cmp(&this.GetWorkingSuccessor().Id) < 0 {
+		if p.Id.Cmp(this.GetWorkingSuccessor().Id) < 0 {
 			if k_hash.Cmp(this.id) <= 0 {
 				this.kvStorage.V[k] = v
 			}
 		} else {
-			if this.id.Cmp(&this.GetWorkingSuccessor().Id) < 0 {
-				if k_hash.Cmp(this.id) <= 0 || k_hash.Cmp(&p.Id) > 0 {
+			if this.id.Cmp(this.GetWorkingSuccessor().Id) < 0 {
+				if k_hash.Cmp(this.id) <= 0 || k_hash.Cmp(p.Id) > 0 {
 					this.kvStorage.V[k] = v
 				}
 			} else {
-				if k_hash.Cmp(this.id) <= 0 && k_hash.Cmp(&p.Id) > 0 {
+				if k_hash.Cmp(this.id) <= 0 && k_hash.Cmp(p.Id) > 0 {
 					this.kvStorage.V[k] = v
 				}
 			}
 		}
 	}
 	this.kvStorage.mux.Unlock()
-	if e != nil {
-		log.Fatal("dialing:", e)
-	}
-	err = client.Call("Node.CompleteMigrate", &FingerType{this.ip, *this.id}, nil)
-	err = client.Call("Node.Notify", &FingerType{this.ip, *this.id}, nil)
+
+	err = client.Call("Node.CompleteMigrate", &FingerType{this.ip, this.id}, nil)
+	err = client.Call("Node.Notify", &FingerType{this.ip, this.id}, nil)
 	if err != nil {
 		fmt.Println(err)
 	}
 	client.Close()
 }
-func (this *Node) Notify(otherNode *FingerType, lalala *int) error {
-	if this.predecessor == nil || between(&this.predecessor.Id, &otherNode.Id, this.id, false) {
+func (this *Node) Notify(otherNode FingerType, lalala *int) error {
+	if this.predecessor == nil || between(this.predecessor.Id, otherNode.Id, this.id, false) {
 		this.predecessor = new(FingerType)
-		*this.predecessor = *otherNode
+		*this.predecessor = otherNode
 		return nil
 	}
 	return errors.New("you're not my father")
@@ -290,7 +293,7 @@ func (this *Node) FindSuccessor(request *FindRequest, successor *FingerType) err
 		successor.Id = this.GetWorkingSuccessor().Id
 	} else {
 		next_step := this.closest_preceding_node(&request.Id)
-		client, e := rpc.DialHTTP("tcp", next_step.Ip)
+		client, e := rpc.Dial("tcp", next_step.Ip)
 		if e != nil {
 			log.Fatal("dialing:", e)
 		}
@@ -298,7 +301,7 @@ func (this *Node) FindSuccessor(request *FindRequest, successor *FingerType) err
 		request.Times++
 		err := client.Call("Node.FindSuccessor", &request, &result)
 		if err != nil {
-			fmt.Println("finding:", e)
+			log.Fatal("finding:", e)
 		}
 		*successor = result
 		client.Close()
@@ -307,7 +310,7 @@ func (this *Node) FindSuccessor(request *FindRequest, successor *FingerType) err
 }
 func (this *Node) closest_preceding_node(id *big.Int) FingerType {
 	for i := m; i > 0; i-- {
-		if between(this.id, &this.finger[i].Id, id, false) {
+		if this.finger[i].Id != nil && between(this.id, this.finger[i].Id, id, false) {
 			return this.finger[i]
 		}
 	}
@@ -317,7 +320,7 @@ func (this *Node) Put_(args *ChordKV, success *bool) error {
 	this.kvStorage.mux.Lock()
 	this.kvStorage.V[args.Key] = args.Val
 	this.kvStorage.mux.Unlock()
-	fmt.Println("put " + args.Key + " => " + args.Val)
+	fmt.Println(this.ip + " put " + args.Key + " => " + args.Val)
 	return nil
 }
 func (this *Node) Get_(key *string, val *string) error {
@@ -328,21 +331,21 @@ func (this *Node) Get_(key *string, val *string) error {
 		return errors.New("not found key")
 	}
 	this.kvStorage.mux.Unlock()
-	fmt.Println("get " + *key + " => " + *val)
+	fmt.Println(this.ip + " get " + *key + " => " + *val)
 	return nil
 }
 func (this *Node) Delete_(key *string, success *bool) error {
 	this.kvStorage.mux.Lock()
 	delete(this.kvStorage.V, *key)
 	this.kvStorage.mux.Unlock()
-	fmt.Println("delete " + *key)
+	fmt.Println(this.ip + " delete " + *key)
 	return nil
 }
 func (this *Node) Put(key string, val string) {
 	k_hash := hashString(key)
 	var successor FingerType
 	_ = this.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
-	client, err := rpc.DialHTTP("tcp", successor.Ip)
+	client, err := rpc.Dial("tcp", successor.Ip)
 	if err != nil {
 		log.Fatal("dialing:", err)
 	}
@@ -355,7 +358,7 @@ func (this *Node) Get(key string) (string, error) {
 	k_hash := hashString(key)
 	var successor FingerType
 	_ = this.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
-	client, err := rpc.DialHTTP("tcp", successor.Ip)
+	client, err := rpc.Dial("tcp", successor.Ip)
 	if err != nil {
 		log.Fatal("dialing:", err)
 	}
@@ -367,7 +370,7 @@ func (this *Node) Delete(key string) {
 	k_hash := hashString(key)
 	var successor FingerType
 	_ = this.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
-	client, err := rpc.DialHTTP("tcp", successor.Ip)
+	client, err := rpc.Dial("tcp", successor.Ip)
 	if err != nil {
 		log.Fatal("dialing:", err)
 	}
@@ -376,12 +379,13 @@ func (this *Node) Delete(key string) {
 }
 func (this *Node) Dump() {
 	fmt.Println(this.kvStorage.V)
+	fmt.Println("finger: ", this.finger)
 	fmt.Println("successor: ", this.successors)
 	fmt.Println("predecessor: " + this.predecessor.Ip)
 
 }
 func (this *Node) Quit() {
-	client, err := rpc.DialHTTP("tcp", this.GetWorkingSuccessor().Ip)
+	client, err := rpc.Dial("tcp", this.GetWorkingSuccessor().Ip)
 	if err != nil {
 		log.Fatal("dialing:", err)
 	}
