@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"net"
-	"net/rpc"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -32,44 +31,24 @@ type keyval struct {
 
 func main() {
 	init1()
-	var servers [100]*rpc.Server
-	var nodes [100]chord.Node
-	var joined [100]bool
-	servers[0] = rpc.NewServer()
-	_ = servers[0].Register(&nodes[0])
+	var nodes [100]*chord.Client
+	var wg = sync.WaitGroup{}
 	localAddress := chord.GetLocalAddress()
 	fmt.Println("local address: " + localAddress)
 	port := 1000
-	l, e := net.Listen("tcp", ":"+strconv.Itoa(port))
-	if e != nil {
-		log.Fatal("listen error", e)
-	}
-	go servers[0].Accept(l)
-	nodes[0].Create(port)
-	go nodes[0].Stabilize()
-	go nodes[0].Fix_fingers()
-	go nodes[0].CheckPredecessor()
-	joined[0] = true
+	nodes[0] = chord.NewNode(port)
+	nodes[0].Run(&wg)
+	nodes[0].Create()
 	kvMap := make(map[string]string)
-
 	var nodecnt = 1
 	for i := 0; i < 5; i++ {
 		//join 15 nodes
 		for j := 0; j < 15; j++ {
 			var index = i*15 + j + 1
-			servers[index] = rpc.NewServer()
-			_ = servers[index].Register(&nodes[index])
 			port++
-			listener, e := net.Listen("tcp", ":"+strconv.Itoa(port))
-			if e != nil {
-				log.Fatal("listen error", e)
-			}
-			go servers[index].Accept(listener)
-			nodes[index].Join(localAddress+":"+strconv.Itoa(1000+5*i), port)
-			go nodes[index].Stabilize()
-			go nodes[index].Fix_fingers()
-			go nodes[index].CheckPredecessor()
-			joined[index] = true
+			nodes[index] = chord.NewNode(port)
+			nodes[index].Run(&wg)
+			nodes[index].Join(localAddress + ":" + strconv.Itoa(1000+5*i))
 			time.Sleep(1 * time.Second)
 			fmt.Println("port ", port, " joined at 1000")
 		}
@@ -99,12 +78,13 @@ func main() {
 		//delete 150 kv
 		for j := 0; j < 150; j++ {
 			delete(kvMap, keyList[j])
-			nodes[rand.Intn(nodecnt)+i*5].Delete(keyList[j])
+			nodes[rand.Intn(nodecnt)+i*5].Del(keyList[j])
 		}
 		//quit 5 nodes
 		for j := 0; j < 5; j++ {
 			nodes[j+i*5].Quit()
-			time.Sleep(3 * time.Second)
+			fmt.Println("quit ", j+i*5, " node")
+			time.Sleep(1 * time.Second)
 		}
 		nodecnt -= 5
 		time.Sleep(4 * time.Second)
@@ -132,7 +112,7 @@ func main() {
 		//delete 150 kv
 		for j := 0; j < 150; j++ {
 			delete(kvMap, keyList[j])
-			nodes[rand.Intn(nodecnt)+i*5+5].Delete(keyList[j])
+			nodes[rand.Intn(nodecnt)+i*5+5].Del(keyList[j])
 		}
 	}
 }

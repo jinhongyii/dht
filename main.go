@@ -3,25 +3,19 @@ package main
 import (
 	"chord"
 	"fmt"
-	"log"
-	"net"
-	"net/rpc"
 	"strconv"
+	"sync"
 )
 
 func main() {
-	server := rpc.NewServer()
+	var port int
+	fmt.Scanln(&port)
+	node := chord.NewNode(port)
 
-	var node chord.Node
-	var port = 3410
 	var joined = false
-	err := server.Register(&node)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	var stop = false
 	fmt.Println("local address: " + chord.GetLocalAddress())
+	wg := sync.WaitGroup{}
 	for !stop {
 		var str1, str2, str3 string
 
@@ -41,15 +35,8 @@ func main() {
 			}
 		case "create":
 			if !joined {
-				l, e := net.Listen("tcp", ":"+strconv.Itoa(port))
-				if e != nil {
-					log.Fatal("listen error", e)
-				}
-				go server.Accept(l)
-				node.Create(port)
-				go node.Stabilize()
-				go node.Fix_fingers()
-				go node.CheckPredecessor()
+				(*node).Run(&wg)
+				(*node).Create()
 				joined = true
 				println("create server at port " + strconv.Itoa(port))
 			} else {
@@ -57,36 +44,29 @@ func main() {
 			}
 		case "join":
 			if !joined {
-				l, e := net.Listen("tcp", ":"+strconv.Itoa(port))
-				if e != nil {
-					log.Fatal("listen error", e)
-				}
-				go server.Accept(l)
-				node.Join(str2, port)
+				(*node).Run(&wg)
+				(*node).Join(str2)
 				joined = true
-				go node.Stabilize()
-				go node.Fix_fingers()
-				go node.CheckPredecessor()
 				fmt.Println("join successful at " + str2)
 			} else {
 				println("already joined")
 			}
 		case "quit":
 			if joined {
-				node.Quit()
+				(*node).Quit()
 			}
 			stop = true
 		case "put":
 			if joined {
-				node.Put(str2, str3)
+				(*node).Put(str2, str3)
 			} else {
 				fmt.Println("not joined in a chord ring")
 			}
 		case "get":
 			if joined {
-				result, err := node.Get(str2)
-				if err != nil {
-					fmt.Println(err)
+				result, success := (*node).Get(str2)
+				if !success {
+					fmt.Println("not found")
 				} else {
 					fmt.Println(str2 + " => " + result)
 				}
@@ -95,14 +75,18 @@ func main() {
 			}
 		case "delete":
 			if joined {
-				node.Delete(str2)
+				success := (*node).Del(str2)
+				if !success {
+					fmt.Println("the key is not in the ring")
+				}
 			} else {
 				fmt.Println("not joined in a chord ring")
 			}
 		case "dump":
 			if joined {
-				node.Dump()
+				(*node).Dump()
 			}
 		}
 	}
+	wg.Wait()
 }
