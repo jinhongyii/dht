@@ -1,24 +1,16 @@
 package chord
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"net"
 	"net/rpc"
+	"os"
+	"strings"
 	"sync"
 	"time"
 )
-
-type dhtNode interface {
-	Get(k string) (string, bool)
-	Put(k string, v string) bool
-	Del(k string) bool
-	Run(wg *sync.WaitGroup)
-	Create()
-	Join(addr string) bool
-	Quit()
-	Ping(addr string) bool
-}
 
 type Client struct {
 	Node_    Node
@@ -34,6 +26,10 @@ func (this *Client) Create() {
 	this.Node_.Predecessor = new(FingerType)
 	this.Node_.Predecessor.Ip = this.Node_.Ip
 	this.Node_.Predecessor.Id = this.Node_.Id
+	path := strings.ReplaceAll(this.Node_.Ip, ":", "_") + ".backup"
+	this.Node_.File, _ = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
+	this.Node_.bufferWriter = bufio.NewWriter(this.Node_.File)
+	this.Node_.recover()
 	go this.Stabilize()
 	go this.Fix_fingers()
 	go this.CheckPredecessor()
@@ -60,10 +56,23 @@ func (this *Client) Fix_fingers() {
 		time.Sleep(1000 * time.Millisecond)
 	}
 }
-
+func Exists(path string) bool {
+	_, err := os.Stat(path)
+	if err != nil {
+		if os.IsExist(err) {
+			return true
+		}
+		return false
+	}
+	return true
+}
 func (this *Client) Join(otherNode string) bool {
 	this.Node_.KvStorage.V = make(map[string]string)
 	this.Node_.Predecessor = nil
+	path := strings.ReplaceAll(this.Node_.Ip, ":", "_") + ".backup"
+	this.Node_.File, _ = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
+	this.Node_.bufferWriter = bufio.NewWriter(this.Node_.File)
+	this.Node_.recover()
 	client, e := rpc.Dial("tcp", otherNode)
 	if e != nil {
 		return false
@@ -92,6 +101,11 @@ func (this *Client) Join(otherNode string) bool {
 		var k_hash = hashString(k)
 		if between(p.Id, k_hash, this.Node_.Id, true) {
 			this.Node_.KvStorage.V[k] = v
+			length, err := this.Node_.bufferWriter.WriteString("put " + k + " " + v + "\n")
+			this.Node_.bufferWriter.Flush()
+			if err != nil {
+				fmt.Println("actually write:", length, " ", err)
+			}
 		}
 	}
 	this.Node_.KvStorage.mux.Unlock()
@@ -163,7 +177,11 @@ func (this *Client) Dump() {
 	}
 	fmt.Println()
 	fmt.Println("successor: ", this.Node_.Successors)
-	fmt.Println("Predecessor: " + this.Node_.Predecessor.Ip)
+	if this.Node_.Predecessor != nil {
+		fmt.Println("Predecessor: " + this.Node_.Predecessor.Ip)
+	} else {
+		fmt.Println("Predecessor : <nil>")
+	}
 
 }
 func (this *Client) Quit() {
@@ -175,6 +193,8 @@ func (this *Client) Quit() {
 	client.Close()
 	this.wg.Done()
 	this.Node_.Listening = false
+	this.Node_.clearbackup()
+	_ = this.Node_.File.Close()
 	time.Sleep(2 * time.Second)
 	err = this.listener.Close()
 	if err != nil {

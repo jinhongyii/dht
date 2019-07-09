@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/rpc"
 	"os"
+	"strings"
 	"sync"
 )
 
@@ -41,13 +42,18 @@ type Node struct {
 	Predecessor  *FingerType
 	Listening    bool
 	File         *os.File
-	bufferWriter *bufio.ReadWriter
+	bufferWriter *bufio.Writer
 }
 
 func (this *Node) Merge(kvpairs *map[string]string, success *bool) error {
 	this.KvStorage.mux.Lock()
 	for k, v := range *kvpairs {
 		this.KvStorage.V[k] = v
+		length, err := this.bufferWriter.WriteString("put " + k + " " + v + "\n")
+		this.bufferWriter.Flush()
+		if err != nil {
+			fmt.Println("actually write:", length, " ", err)
+		}
 	}
 	this.KvStorage.mux.Unlock()
 	return nil
@@ -177,6 +183,29 @@ func (this *Node) fix_fingers(fingerEntry *int) {
 		}
 	}
 }
+func (this *Node) clearbackup() {
+	this.File.Close()
+	this.File, _ = os.Create(strings.ReplaceAll(this.Ip, ":", "_") + ".backup")
+}
+func (this *Node) recover() {
+	bufferReader := bufio.NewReader(this.File)
+	this.File.Seek(0, 0)
+	this.KvStorage.mux.Lock()
+	for {
+		line, e := bufferReader.ReadString('\n')
+		if e != nil {
+			this.KvStorage.mux.Unlock()
+			return
+		}
+		words := strings.Split(line, " ")
+		if words[0] == "put" {
+			this.KvStorage.V[words[1]] = words[2][:len(words[2])-1]
+		} else {
+			delete(this.KvStorage.V, words[1][:len(words[1])-1])
+		}
+	}
+
+}
 func (this *Node) CompleteMigrate(otherNode FingerType, lala *int) error {
 	var deletion []string
 	this.KvStorage.mux.Lock()
@@ -187,6 +216,11 @@ func (this *Node) CompleteMigrate(otherNode FingerType, lala *int) error {
 	}
 	for _, v := range deletion {
 		delete(this.KvStorage.V, v)
+		length, err := this.bufferWriter.WriteString("delete " + v + "\n")
+		this.bufferWriter.Flush()
+		if err != nil {
+			fmt.Println("actually write:", length, " ", err)
+		}
 	}
 	this.KvStorage.mux.Unlock()
 	return nil
@@ -248,6 +282,11 @@ func (this *Node) Put_(args *ChordKV, success *bool) error {
 	this.KvStorage.mux.Lock()
 	this.KvStorage.V[args.Key] = args.Val
 	this.KvStorage.mux.Unlock()
+	length, err := this.bufferWriter.WriteString("put " + args.Key + " " + args.Val + "\n")
+	this.bufferWriter.Flush()
+	if err != nil {
+		fmt.Println("actually write:", length, " ", err)
+	}
 	fmt.Println(this.Ip + " put " + args.Key + " => " + args.Val)
 	return nil
 }
@@ -267,6 +306,11 @@ func (this *Node) Delete_(key *string, success *bool) error {
 	_, ok := this.KvStorage.V[*key]
 	delete(this.KvStorage.V, *key)
 	this.KvStorage.mux.Unlock()
+	length, err := this.bufferWriter.WriteString("delete " + *key + "\n")
+	this.bufferWriter.Flush()
+	if err != nil {
+		fmt.Println("actually write:", length, " ", err)
+	}
 	fmt.Println(this.Ip + " delete " + *key)
 	*success = ok
 	return nil
