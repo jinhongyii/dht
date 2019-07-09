@@ -49,11 +49,14 @@ func main() {
 			nodes[index] = chord.NewNode(port)
 			nodes[index].Run(&wg)
 			nodes[index].Join(localAddress + ":" + strconv.Itoa(1000+5*i))
-			time.Sleep(1 * time.Second)
+			time.Sleep(3 * time.Second)
 			fmt.Println("port ", port, " joined at 1000")
 		}
 		nodecnt += 15
-		time.Sleep(4 * time.Second)
+		time.Sleep(30 * time.Second)
+		for j := i * 5; j <= i*15+15; j++ {
+			nodes[j].Dump()
+		}
 		//put 300 kv
 		for j := 0; j < 300; j++ {
 			k := RandStringRunes(30)
@@ -68,7 +71,12 @@ func main() {
 			if cnt == 200 {
 				break
 			}
-			fetchedVal, _ := nodes[rand.Intn(nodecnt)+i*5].Get(k)
+			var tmp = rand.Intn(nodecnt) + i*5
+			fetchedVal, success := nodes[tmp].Get(k)
+			if !success {
+				fetchedVal, success = nodes[tmp].Get(k)
+				log.Fatal("error:can't find key ", k, " from node ", tmp)
+			}
 			if fetchedVal != v {
 				log.Fatal("actual: ", fetchedVal, " expected: ", v)
 			}
@@ -80,14 +88,21 @@ func main() {
 			delete(kvMap, keyList[j])
 			nodes[rand.Intn(nodecnt)+i*5].Del(keyList[j])
 		}
+		for j := i * 5; j <= i*15+15; j++ {
+			nodes[j].Dump()
+		}
 		//quit 5 nodes
 		for j := 0; j < 5; j++ {
 			nodes[j+i*5].Quit()
 			fmt.Println("quit ", j+i*5, " node")
-			time.Sleep(1 * time.Second)
+			time.Sleep(3 * time.Second)
+			nodes[j+i*5+1].Dump()
 		}
 		nodecnt -= 5
-		time.Sleep(4 * time.Second)
+		time.Sleep(30 * time.Second)
+		for j := i*5 + 5; j <= i*15+15; j++ {
+			nodes[j].Dump()
+		}
 		//put 300 kv
 		for j := 0; j < 300; j++ {
 			k := RandStringRunes(30)
@@ -102,7 +117,13 @@ func main() {
 			if cnt == 200 {
 				break
 			}
-			fetchedVal, _ := nodes[rand.Intn(nodecnt)+i*5+5].Get(k)
+			var tmp = rand.Intn(nodecnt) + i*5 + 5
+			fetchedVal, success := nodes[tmp].Get(k)
+			if !success {
+				fetchedVal, success = nodes[tmp].Get(k)
+				log.Fatal("error:can't find key ", k, " from node ", tmp)
+
+			}
 			if fetchedVal != v {
 				log.Fatal("actual: ", fetchedVal, " expected: ", v)
 			}

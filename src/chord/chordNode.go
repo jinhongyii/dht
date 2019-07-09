@@ -1,6 +1,7 @@
 package chord
 
 import (
+	"bufio"
 	"crypto/sha1"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"math/big"
 	"net"
 	"net/rpc"
+	"os"
 	"sync"
 )
 
@@ -31,12 +33,15 @@ type FingerType struct {
 	Id *big.Int
 }
 type Node struct {
-	Id          *big.Int
-	Ip          string
-	KvStorage   Counter
-	Successors  [m + 1]FingerType
-	Finger      [m + 1]FingerType
-	Predecessor *FingerType
+	Id           *big.Int
+	Ip           string
+	KvStorage    Counter
+	Successors   [m + 1]FingerType
+	Finger       [m + 1]FingerType
+	Predecessor  *FingerType
+	Listening    bool
+	File         *os.File
+	bufferWriter *bufio.ReadWriter
 }
 
 func (this *Node) Merge(kvpairs *map[string]string, success *bool) error {
@@ -50,7 +55,7 @@ func (this *Node) Merge(kvpairs *map[string]string, success *bool) error {
 
 func (this *Node) GetKeyValMap(a *int, b *map[string]string) error {
 	this.KvStorage.mux.Lock()
-	b = &(this.KvStorage.V)
+	*b = this.KvStorage.V
 	this.KvStorage.mux.Unlock()
 	return nil
 }
@@ -58,12 +63,16 @@ func (this *Node) GetKeyValMap(a *int, b *map[string]string) error {
 func (this *Node) GetPredecessor(a *int, b *FingerType) error {
 	if this.Predecessor != nil {
 		*b = *this.Predecessor
+		return nil
 	} else {
-		*b = FingerType{}
+		return errors.New("no predecessor")
 	}
+
+}
+func (this *Node) GetListeningStatus(a int, listening *bool) error {
+	*listening = this.Listening
 	return nil
 }
-
 func (this *Node) GetSuccessors(a int, successors *[m + 1]FingerType) error {
 	for i := 1; i <= m; i++ {
 		(*successors)[i] = this.Successors[i]
@@ -85,8 +94,8 @@ func (this *Node) getWorkingSuccessor() *FingerType {
 		var suc_Successors [m + 1]FingerType
 		_ = client.Call("Node.GetSuccessors", 0, &suc_Successors)
 		this.Successors[1] = this.Successors[i]
-		for i := 2; i <= m; i++ {
-			this.Successors[i] = suc_Successors[i-1]
+		for j := 2; j <= m; j++ {
+			this.Successors[j] = suc_Successors[j-1]
 		}
 		client.Close()
 	}
@@ -100,10 +109,10 @@ func (this *Node) stabilize() {
 		log.Fatal("dialing:", e)
 	}
 	var p FingerType
-	_ = client.Call("Node.GetPredecessor", 0, &p)
+	err := client.Call("Node.GetPredecessor", 0, &p)
 	client.Close()
-	var tmp big.Int
-	if (p.Ip != "" && p.Id.Cmp(&tmp) != 0) && between(this.Id, p.Id, this.getWorkingSuccessor().Id, false) {
+
+	if (p.Id != nil) && between(this.Id, p.Id, this.getWorkingSuccessor().Id, false) {
 		*this.getWorkingSuccessor() = p
 	}
 	client, e = rpc.Dial("tcp", this.getWorkingSuccessor().Ip)
@@ -112,7 +121,7 @@ func (this *Node) stabilize() {
 	}
 	_ = client.Call("Node.Notify", &FingerType{this.Ip, this.Id}, nil)
 	var suc_Successors [m + 1]FingerType
-	err := client.Call("Node.GetSuccessors", 0, &suc_Successors)
+	err = client.Call("Node.GetSuccessors", 0, &suc_Successors)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -126,11 +135,17 @@ func (this *Node) stabilize() {
 func (this *Node) ping(ip string) bool {
 	client, e := rpc.Dial("tcp", ip)
 	if e != nil {
-		fmt.Println(e)
+		//fmt.Println("ping ",ip," error")
 		return false
 	} else {
+		var listening bool
+		_ = client.Call("Node.GetListeningStatus", 0, &listening)
 		client.Close()
-		return true
+		if listening {
+			return true
+		} else {
+			return false
+		}
 	}
 }
 func (this *Node) checkPredecessor() {
@@ -147,6 +162,7 @@ func (this *Node) fix_fingers(fingerEntry *int) {
 	*fingerEntry++
 	if *fingerEntry > m {
 		*fingerEntry = 1
+		return
 	}
 	for {
 		if between(this.Id, jump(this.Id, *fingerEntry), fingerFound.Id, true) {
@@ -164,20 +180,9 @@ func (this *Node) fix_fingers(fingerEntry *int) {
 func (this *Node) CompleteMigrate(otherNode FingerType, lala *int) error {
 	var deletion []string
 	this.KvStorage.mux.Lock()
-	if otherNode.Id.Cmp(this.Id) < 0 {
-
-		for k := range this.KvStorage.V {
-			k_hash := hashString(k)
-			if k_hash.Cmp(otherNode.Id) <= 0 || k_hash.Cmp(this.Predecessor.Id) > 0 {
-				deletion = append(deletion, k)
-			}
-		}
-	} else {
-		for k := range this.KvStorage.V {
-			k_hash := hashString(k)
-			if k_hash.Cmp(otherNode.Id) <= 0 {
-				deletion = append(deletion, k)
-			}
+	for k, _ := range this.KvStorage.V {
+		if between(this.Predecessor.Id, hashString(k), otherNode.Id, true) {
+			deletion = append(deletion, k)
 		}
 	}
 	for _, v := range deletion {
@@ -205,13 +210,15 @@ func (this *Node) FindSuccessor(request *FindRequest, successor *FingerType) err
 	if request.Times > maxfindTimes {
 		return errors.New("can't find ")
 	}
-	if this.getWorkingSuccessor().Id.Cmp(this.Id) == 0 {
+	if this.getWorkingSuccessor().Id.Cmp(this.Id) == 0 || request.Id.Cmp(this.Id) == 0 {
 		*successor = *this.getWorkingSuccessor()
-	} else if between(this.Id, &request.Id, hashString(this.getWorkingSuccessor().Ip), true) {
+	} else if between(this.Id, &request.Id, this.getWorkingSuccessor().Id, true) {
 		successor.Ip = this.getWorkingSuccessor().Ip
 		successor.Id = this.getWorkingSuccessor().Id
 	} else {
+
 		next_step := this.closest_preceding_node(&request.Id)
+		//next_step:=this.getWorkingSuccessor()
 		client, e := rpc.Dial("tcp", next_step.Ip)
 		if e != nil {
 			log.Fatal("dialing:", e)
@@ -220,16 +227,18 @@ func (this *Node) FindSuccessor(request *FindRequest, successor *FingerType) err
 		request.Times++
 		err := client.Call("Node.FindSuccessor", &request, &result)
 		if err != nil {
-			log.Fatal("finding:", e)
+			fmt.Println("finding:", e)
+			this.stabilize()
+		} else {
+			*successor = result
 		}
-		*successor = result
 		client.Close()
 	}
 	return nil
 }
 func (this *Node) closest_preceding_node(id *big.Int) FingerType {
 	for i := m; i > 0; i-- {
-		if this.Finger[i].Id != nil && between(this.Id, this.Finger[i].Id, id, true) {
+		if this.Finger[i].Id != nil && between(this.Id, this.Finger[i].Id, id, true) && this.ping(this.Finger[i].Ip) {
 			return this.Finger[i]
 		}
 	}
