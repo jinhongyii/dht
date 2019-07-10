@@ -34,24 +34,22 @@ type FingerType struct {
 	Id *big.Int
 }
 type Node struct {
-	Id           *big.Int
-	Ip           string
-	KvStorage    Counter
-	sucMux       sync.RWMutex
-	Successors   [m + 1]FingerType
-	Finger       [m + 1]FingerType
-	Predecessor  *FingerType
-	Listening    bool
-	File         *os.File
-	bufferWriter *bufio.Writer
+	Id          *big.Int
+	Ip          string
+	KvStorage   Counter
+	sucMux      sync.RWMutex
+	Successors  [m + 1]FingerType
+	Finger      [m + 1]FingerType
+	Predecessor *FingerType
+	Listening   bool
+	File        *os.File
 }
 
 func (this *Node) Merge(kvpairs *map[string]string, success *bool) error {
 	this.KvStorage.mux.Lock()
 	for k, v := range *kvpairs {
 		this.KvStorage.V[k] = v
-		length, err := this.bufferWriter.WriteString("put " + k + " " + v + "\n")
-		this.bufferWriter.Flush()
+		length, err := this.File.WriteString("put " + k + " " + v + "\n")
 		if err != nil {
 			fmt.Println("actually write:", length, " ", err)
 		}
@@ -240,8 +238,7 @@ func (this *Node) CompleteMigrate(otherNode FingerType, lala *int) error {
 	}
 	for _, v := range deletion {
 		delete(this.KvStorage.V, v)
-		length, err := this.bufferWriter.WriteString("delete " + v + "\n")
-		this.bufferWriter.Flush()
+		length, err := this.File.WriteString("delete " + v + "\n")
 		if err != nil {
 			fmt.Println("actually write:", length, " ", err)
 		}
@@ -311,8 +308,8 @@ func (this *Node) Put_(args *ChordKV, success *bool) error {
 	this.KvStorage.mux.Lock()
 	this.KvStorage.V[args.Key] = args.Val
 	this.KvStorage.mux.Unlock()
-	length, err := this.bufferWriter.WriteString("put " + args.Key + " " + args.Val + "\n")
-	this.bufferWriter.Flush()
+	length, err := this.File.WriteString("put " + args.Key + " " + args.Val + "\n")
+
 	if err != nil {
 		fmt.Println("actually write:", length, " ", err)
 	}
@@ -335,8 +332,7 @@ func (this *Node) Delete_(key *string, success *bool) error {
 	_, ok := this.KvStorage.V[*key]
 	delete(this.KvStorage.V, *key)
 	this.KvStorage.mux.Unlock()
-	length, err := this.bufferWriter.WriteString("delete " + *key + "\n")
-	this.bufferWriter.Flush()
+	length, err := this.File.WriteString("delete " + *key + "\n")
 	if err != nil {
 		fmt.Println("actually write:", length, " ", err)
 	}

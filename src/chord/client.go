@@ -1,7 +1,6 @@
 package chord
 
 import (
-	"bufio"
 	"fmt"
 	"log"
 	"net"
@@ -28,7 +27,6 @@ func (this *Client) Create() {
 	this.Node_.Predecessor.Id = this.Node_.Id
 	path := strings.ReplaceAll(this.Node_.Ip, ":", "_") + ".backup"
 	this.Node_.File, _ = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
-	this.Node_.bufferWriter = bufio.NewWriter(this.Node_.File)
 	this.Node_.recover()
 	go this.Stabilize()
 	go this.Fix_fingers()
@@ -71,7 +69,6 @@ func (this *Client) Join(otherNode string) bool {
 	this.Node_.Predecessor = nil
 	path := strings.ReplaceAll(this.Node_.Ip, ":", "_") + ".backup"
 	this.Node_.File, _ = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
-	this.Node_.bufferWriter = bufio.NewWriter(this.Node_.File)
 	this.Node_.recover()
 	client, e := rpc.Dial("tcp", otherNode)
 	if e != nil {
@@ -101,8 +98,7 @@ func (this *Client) Join(otherNode string) bool {
 		var k_hash = hashString(k)
 		if between(p.Id, k_hash, this.Node_.Id, true) {
 			this.Node_.KvStorage.V[k] = v
-			length, err := this.Node_.bufferWriter.WriteString("put " + k + " " + v + "\n")
-			this.Node_.bufferWriter.Flush()
+			length, err := this.Node_.File.WriteString("put " + k + " " + v + "\n")
 			if err != nil {
 				fmt.Println("actually write:", length, " ", err)
 			}
