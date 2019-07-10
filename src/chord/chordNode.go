@@ -5,13 +5,13 @@ import (
 	"crypto/sha1"
 	"errors"
 	"fmt"
-	"log"
 	"math/big"
 	"net"
 	"net/rpc"
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 //todo:implement r-successor
@@ -37,6 +37,7 @@ type Node struct {
 	Id           *big.Int
 	Ip           string
 	KvStorage    Counter
+	sucMux       sync.RWMutex
 	Successors   [m + 1]FingerType
 	Finger       [m + 1]FingerType
 	Predecessor  *FingerType
@@ -80,22 +81,28 @@ func (this *Node) GetListeningStatus(a int, listening *bool) error {
 	return nil
 }
 func (this *Node) GetSuccessors(a int, successors *[m + 1]FingerType) error {
+	this.sucMux.RLock()
 	for i := 1; i <= m; i++ {
 		(*successors)[i] = this.Successors[i]
 	}
+	this.sucMux.RUnlock()
 	return nil
 }
-func (this *Node) getWorkingSuccessor() *FingerType {
+func (this *Node) getWorkingSuccessor() FingerType {
 	var i int
+	this.sucMux.Lock()
 	for i = 1; i <= m; i++ {
 		if this.ping(this.Successors[i].Ip) {
 			break
 		}
 	}
+
 	if i != 1 {
+		fmt.Println(this.Ip, " successor set to ", this.Successors[i].Ip, "(getworkingsuccessor)")
 		client, err := rpc.Dial("tcp", this.Successors[i].Ip)
 		if err != nil {
-			log.Fatal("dialing:", err)
+			this.sucMux.Unlock()
+			return this.getWorkingSuccessor()
 		}
 		var suc_Successors [m + 1]FingerType
 		_ = client.Call("Node.GetSuccessors", 0, &suc_Successors)
@@ -103,37 +110,52 @@ func (this *Node) getWorkingSuccessor() *FingerType {
 		for j := 2; j <= m; j++ {
 			this.Successors[j] = suc_Successors[j-1]
 		}
+		this.sucMux.Unlock()
 		client.Close()
+	} else {
+		this.sucMux.Unlock()
 	}
-	return &this.Successors[1]
+	return this.Successors[1]
 
 }
 
 func (this *Node) stabilize() {
-	client, e := rpc.Dial("tcp", this.getWorkingSuccessor().Ip)
+	suc := this.getWorkingSuccessor()
+	client, e := rpc.Dial("tcp", suc.Ip)
 	if e != nil {
-		log.Fatal("dialing:", e)
+		//log.Fatal("dialing:", e)
+		return
 	}
 	var p FingerType
 	err := client.Call("Node.GetPredecessor", 0, &p)
-	client.Close()
 
-	if (p.Id != nil) && between(this.Id, p.Id, this.getWorkingSuccessor().Id, false) {
-		*this.getWorkingSuccessor() = p
+	if err == nil && this.ping(p.Ip) {
+		client.Close()
+		this.sucMux.Lock()
+		if (p.Id != nil) && between(this.Id, p.Id, this.Successors[1].Id, false) {
+			this.Successors[1] = p
+			fmt.Println(this.Ip, " successor set to ", p.Ip, "(stabilize)")
+		}
+		client, e = rpc.Dial("tcp", this.Successors[1].Ip)
+		this.sucMux.Unlock()
+		if e != nil {
+			//log.Fatal("dialing:", e)
+			return
+		}
 	}
-	client, e = rpc.Dial("tcp", this.getWorkingSuccessor().Ip)
-	if e != nil {
-		log.Fatal("dialing:", e)
-	}
+
 	_ = client.Call("Node.Notify", &FingerType{this.Ip, this.Id}, nil)
 	var suc_Successors [m + 1]FingerType
 	err = client.Call("Node.GetSuccessors", 0, &suc_Successors)
 	if err != nil {
-		fmt.Println(err)
+		client.Close()
+		return
 	}
+	this.sucMux.Lock()
 	for i := 2; i <= m; i++ {
 		this.Successors[i] = suc_Successors[i-1]
 	}
+	this.sucMux.Unlock()
 	client.Close()
 
 }
@@ -244,25 +266,28 @@ func (this *Node) FindSuccessor(request *FindRequest, successor *FingerType) err
 	if request.Times > maxfindTimes {
 		return errors.New("can't find ")
 	}
-	if this.getWorkingSuccessor().Id.Cmp(this.Id) == 0 || request.Id.Cmp(this.Id) == 0 {
-		*successor = *this.getWorkingSuccessor()
-	} else if between(this.Id, &request.Id, this.getWorkingSuccessor().Id, true) {
-		successor.Ip = this.getWorkingSuccessor().Ip
-		successor.Id = this.getWorkingSuccessor().Id
+	var suc = new(FingerType)
+	*suc = this.getWorkingSuccessor()
+	if suc.Id.Cmp(this.Id) == 0 || request.Id.Cmp(this.Id) == 0 {
+		*successor = *suc
+	} else if between(this.Id, &request.Id, suc.Id, true) {
+		successor.Ip = suc.Ip
+		successor.Id = suc.Id
 	} else {
-
 		next_step := this.closest_preceding_node(&request.Id)
 		//next_step:=this.getWorkingSuccessor()
 		client, e := rpc.Dial("tcp", next_step.Ip)
 		if e != nil {
-			log.Fatal("dialing:", e)
+			time.Sleep(1 * time.Second)
+			return this.FindSuccessor(request, successor)
 		}
 		var result FingerType
 		request.Times++
 		err := client.Call("Node.FindSuccessor", &request, &result)
 		if err != nil {
-			fmt.Println("finding:", e)
-			this.stabilize()
+			time.Sleep(1 * time.Second)
+			defer client.Close()
+			return this.FindSuccessor(request, successor)
 		} else {
 			*successor = result
 		}
@@ -276,7 +301,7 @@ func (this *Node) closest_preceding_node(id *big.Int) FingerType {
 			return this.Finger[i]
 		}
 	}
-	return *this.getWorkingSuccessor()
+	return this.Successors[1]
 }
 func (this *Node) Put_(args *ChordKV, success *bool) error {
 	this.KvStorage.mux.Lock()

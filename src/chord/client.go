@@ -29,7 +29,7 @@ func (this *Client) Create() {
 	path := strings.ReplaceAll(this.Node_.Ip, ":", "_") + ".backup"
 	this.Node_.File, _ = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
 	this.Node_.bufferWriter = bufio.NewWriter(this.Node_.File)
-	this.Node_.recover()
+	//this.Node_.recover()
 	go this.Stabilize()
 	go this.Fix_fingers()
 	go this.CheckPredecessor()
@@ -38,14 +38,14 @@ func (this *Client) Create() {
 func (this *Client) Stabilize() {
 	for this.Node_.Listening {
 		this.Node_.stabilize()
-		time.Sleep(1000 * time.Millisecond)
+		time.Sleep(333 * time.Millisecond)
 	}
 }
 
 func (this *Client) CheckPredecessor() {
 	for this.Node_.Listening {
 		this.Node_.checkPredecessor()
-		time.Sleep(1000 * time.Millisecond)
+		time.Sleep(333 * time.Millisecond)
 	}
 }
 
@@ -53,7 +53,7 @@ func (this *Client) Fix_fingers() {
 	var fingerEntry = 1
 	for this.Node_.Listening {
 		this.Node_.fix_fingers(&fingerEntry)
-		time.Sleep(1000 * time.Millisecond)
+		time.Sleep(333 * time.Millisecond)
 	}
 }
 func Exists(path string) bool {
@@ -72,7 +72,7 @@ func (this *Client) Join(otherNode string) bool {
 	path := strings.ReplaceAll(this.Node_.Ip, ":", "_") + ".backup"
 	this.Node_.File, _ = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
 	this.Node_.bufferWriter = bufio.NewWriter(this.Node_.File)
-	this.Node_.recover()
+	//this.Node_.recover()
 	client, e := rpc.Dial("tcp", otherNode)
 	if e != nil {
 		return false
@@ -135,7 +135,7 @@ func (this *Client) Put(key string, val string) bool {
 }
 func (this *Client) Get(key string) (string, bool) {
 	var val string
-	var maxrequest = 5
+	var maxrequest = 3
 	var success = false
 	k_hash := hashString(key)
 	var successor FingerType
@@ -195,7 +195,7 @@ func (this *Client) Quit() {
 	this.Node_.Listening = false
 	this.Node_.clearbackup()
 	_ = this.Node_.File.Close()
-	time.Sleep(2 * time.Second)
+	//time.Sleep(2 * time.Second)
 	err = this.listener.Close()
 	if err != nil {
 		println(err)
