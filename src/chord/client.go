@@ -76,22 +76,22 @@ func (this *Client) Join(otherNode string) bool {
 	}
 	err := client.Call("Node.FindSuccessor", &FindRequest{*this.Node_.Id, 0}, &this.Node_.Successors[1])
 	if err != nil {
-		fmt.Println(err)
+		return false
 	}
 	client.Close()
 	client, e = rpc.Dial("tcp", this.Node_.getWorkingSuccessor().Ip)
 	if e != nil {
-		log.Fatal("dialing:", e)
+		return false
 	}
 	var receivedMap map[string]string
 	var p FingerType
 	err = client.Call("Node.GetKeyValMap", 0, &receivedMap)
 	if err != nil {
-		fmt.Println(err)
+		return false
 	}
 	err = client.Call("Node.GetPredecessor", 0, &p)
 	if err != nil {
-		fmt.Println(err)
+		return false
 	}
 	this.Node_.KvStorage.mux.Lock()
 	for k, v := range receivedMap {
@@ -109,13 +109,13 @@ func (this *Client) Join(otherNode string) bool {
 	err = client.Call("Node.CompleteMigrate", &FingerType{this.Node_.Ip, this.Node_.Id}, nil)
 	err = client.Call("Node.Notify", &FingerType{this.Node_.Ip, this.Node_.Id}, nil)
 	if err != nil {
-		fmt.Println(err)
+		return false
 	}
 	client.Close()
 	go this.Stabilize()
 	go this.Fix_fingers()
 	go this.CheckPredecessor()
-	return err == nil
+	return true
 }
 func (this *Client) Put(key string, val string) bool {
 	k_hash := hashString(key)
@@ -123,7 +123,7 @@ func (this *Client) Put(key string, val string) bool {
 	_ = this.Node_.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
 	client, err := rpc.Dial("tcp", successor.Ip)
 	if err != nil {
-		log.Fatal("dialing:", err)
+		return false
 	}
 	err = client.Call("Node.Put_", &ChordKV{key, val}, nil)
 	client.Close()
@@ -138,12 +138,11 @@ func (this *Client) Get(key string) (string, bool) {
 	for i := 0; i < maxrequest && !success; i++ {
 		_ = this.Node_.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
 		client, err := rpc.Dial("tcp", successor.Ip)
-		if err != nil {
-			log.Fatal("dialing:", err)
+		if err == nil {
+			err = client.Call("Node.Get_", &key, &val)
+			client.Close()
 		}
-		err = client.Call("Node.Get_", &key, &val)
-		client.Close()
-		success = (err == nil)
+		success = err == nil
 		if !success {
 			time.Sleep(2 * time.Second)
 		}
@@ -157,10 +156,13 @@ func (this *Client) Del(key string) bool {
 	_ = this.Node_.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
 	client, err := rpc.Dial("tcp", successor.Ip)
 	if err != nil {
-		log.Fatal("dialing:", err)
+		return false
 	}
 	var success bool
 	err = client.Call("Node.Delete_", &key, &success)
+	if err != nil {
+		return false
+	}
 	client.Close()
 	return success
 }
