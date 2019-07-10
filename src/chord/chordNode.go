@@ -81,11 +81,9 @@ func (this *Node) GetListeningStatus(a int, listening *bool) error {
 	return nil
 }
 func (this *Node) GetSuccessors(a int, successors *[m + 1]FingerType) error {
-	this.sucMux.RLock()
-	for i := 1; i <= m; i++ {
-		(*successors)[i] = this.Successors[i]
-	}
-	this.sucMux.RUnlock()
+	//this.sucMux.RLock()
+	*successors = this.Successors
+	//this.sucMux.RUnlock()
 	return nil
 }
 func (this *Node) getWorkingSuccessor() FingerType {
@@ -96,7 +94,6 @@ func (this *Node) getWorkingSuccessor() FingerType {
 			break
 		}
 	}
-
 	if i != 1 {
 		fmt.Println(this.Ip, " successor set to ", this.Successors[i].Ip, "(getworkingsuccessor)")
 		client, err := rpc.Dial("tcp", this.Successors[i].Ip)
@@ -185,7 +182,12 @@ func (this *Node) checkPredecessor() {
 }
 
 func (this *Node) fix_fingers(fingerEntry *int) {
+	var tmp FingerType = this.Finger[*fingerEntry]
+
 	_ = this.FindSuccessor(&FindRequest{*jump(this.Id, *fingerEntry), 0}, &this.Finger[*fingerEntry])
+	if *fingerEntry == 1 && tmp != this.Finger[*fingerEntry] {
+		fmt.Println(this.Ip, " finger 1 set to ", this.Finger[*fingerEntry].Ip)
+	}
 	fingerFound := this.Finger[*fingerEntry]
 	*fingerEntry++
 	if *fingerEntry > m {
@@ -278,6 +280,7 @@ func (this *Node) FindSuccessor(request *FindRequest, successor *FingerType) err
 		//next_step:=this.getWorkingSuccessor()
 		client, e := rpc.Dial("tcp", next_step.Ip)
 		if e != nil {
+			fmt.Println("findSuccessor wait")
 			time.Sleep(1 * time.Second)
 			return this.FindSuccessor(request, successor)
 		}
@@ -287,6 +290,7 @@ func (this *Node) FindSuccessor(request *FindRequest, successor *FingerType) err
 		if err != nil {
 			time.Sleep(1 * time.Second)
 			defer client.Close()
+			fmt.Println(this.Ip, " findSuccessor wait ,request:", request.Id)
 			return this.FindSuccessor(request, successor)
 		} else {
 			*successor = result

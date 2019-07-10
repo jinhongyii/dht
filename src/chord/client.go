@@ -29,7 +29,7 @@ func (this *Client) Create() {
 	path := strings.ReplaceAll(this.Node_.Ip, ":", "_") + ".backup"
 	this.Node_.File, _ = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
 	this.Node_.bufferWriter = bufio.NewWriter(this.Node_.File)
-	//this.Node_.recover()
+	this.Node_.recover()
 	go this.Stabilize()
 	go this.Fix_fingers()
 	go this.CheckPredecessor()
@@ -72,7 +72,7 @@ func (this *Client) Join(otherNode string) bool {
 	path := strings.ReplaceAll(this.Node_.Ip, ":", "_") + ".backup"
 	this.Node_.File, _ = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
 	this.Node_.bufferWriter = bufio.NewWriter(this.Node_.File)
-	//this.Node_.recover()
+	this.Node_.recover()
 	client, e := rpc.Dial("tcp", otherNode)
 	if e != nil {
 		return false
