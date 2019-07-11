@@ -156,19 +156,37 @@ func (this *Node) stabilize() {
 }
 
 func (this *Node) ping(ip string) bool {
-	client, e := rpc.Dial("tcp", ip)
-	if e != nil {
-		//fmt.Println("ping ",ip," error")
-		return false
-	} else {
-		var listening bool
-		_ = client.Call("Node.GetListeningStatus", 0, &listening)
-		client.Close()
-		if listening {
-			return true
+	//conn,err:=net.DialTimeout("tcp",ip,time.Second)
+	//if err!=nil && this.Ip=="10.166.172.2:1010" {
+	//	fmt.Println("ping ",ip," error")
+	//	return false
+	//}
+	//encBuf := bufio.NewWriter(conn)
+	//codec := &gobClientCodec{conn, gob.NewDecoder(conn), gob.NewEncoder(encBuf), encBuf}
+	//client:=rpc.NewClientWithCodec(codec)
+	ch := make(chan bool)
+	go func() {
+		client, err := rpc.Dial("tcp", ip)
+		if err != nil {
+			ch <- false
+			return
 		} else {
-			return false
+			var listening bool
+			_ = client.Call("Node.GetListeningStatus", 0, &listening)
+			client.Close()
+			if listening {
+				ch <- true
+			} else {
+				ch <- false
+			}
+			return
 		}
+	}()
+	select {
+	case success := <-ch:
+		return success
+	case <-time.After(1 * time.Second):
+		return false
 	}
 }
 func (this *Node) checkPredecessor() {
@@ -181,8 +199,23 @@ func (this *Node) checkPredecessor() {
 
 func (this *Node) fix_fingers(fingerEntry *int) {
 	var tmp FingerType = this.Finger[*fingerEntry]
-
-	_ = this.FindSuccessor(&FindRequest{*jump(this.Id, *fingerEntry), 0}, &this.Finger[*fingerEntry])
+	if this.Ip == "10.166.172.2:1010" {
+		fmt.Println("1010 fix finger")
+	}
+	ch := make(chan error)
+	go func() {
+		err := this.FindSuccessor(&FindRequest{*jump(this.Id, *fingerEntry), 0}, &this.Finger[*fingerEntry])
+		ch <- err
+	}()
+	select {
+	case err := <-ch:
+		if err != nil {
+			return
+		}
+	case <-time.After(2 * time.Second):
+		*fingerEntry = 1
+		return
+	}
 	if *fingerEntry == 1 && tmp != this.Finger[*fingerEntry] {
 		fmt.Println(this.Ip, " finger 1 set to ", this.Finger[*fingerEntry].Ip)
 	}

@@ -187,7 +187,7 @@ func (this *Client) Quit() {
 	if err != nil {
 		log.Fatal("dialing:", err)
 	}
-	err = client.Call("Node.Merge", &this.Node_.KvStorage.V, nil)
+	err = client.Call("Node.Merge", &this.Node_.KvStorage.V, nil) //todo:
 	client.Close()
 	this.wg.Done()
 	this.Node_.Listening = false
@@ -198,6 +198,77 @@ func (this *Client) Quit() {
 	if err != nil {
 		println(err)
 	}
+}
+func (this *Client) ForceQuit() {
+	this.wg.Done()
+	this.Node_.Listening = false
+	_ = this.Node_.File.Close()
+	_ = this.listener.Close()
+
+}
+func (this *Client) Rejoin(ip string) bool {
+	this.wg.Add(1)
+	var e error
+	this.listener.Accept()
+	this.listener, e = net.Listen("tcp", this.Node_.Ip)
+	if e != nil {
+		fmt.Println(e)
+	}
+	go this.server.Accept(this.listener)
+	this.Node_.Listening = true
+	this.Node_.Ip = GetLocalAddress() + this.Node_.Ip
+	this.Node_.Id = hashString(this.Node_.Ip)
+	this.Node_.KvStorage.V = make(map[string]string)
+	this.Node_.Predecessor = nil
+	path := strings.ReplaceAll(this.Node_.Ip, ":", "_") + ".backup"
+	this.Node_.File, _ = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
+	this.Node_.recover()
+	client, e := rpc.Dial("tcp", ip)
+	if e != nil {
+		return false
+	}
+	err := client.Call("Node.FindSuccessor", &FindRequest{*this.Node_.Id, 0}, &this.Node_.Successors[1])
+	if err != nil {
+		return false
+	}
+	client.Close()
+	client, e = rpc.Dial("tcp", this.Node_.getWorkingSuccessor().Ip)
+	if e != nil {
+		return false
+	}
+	var receivedMap map[string]string
+	var p FingerType
+	err = client.Call("Node.GetKeyValMap", 0, &receivedMap)
+	if err != nil {
+		return false
+	}
+	err = client.Call("Node.GetPredecessor", 0, &p)
+	if err != nil {
+		return false
+	}
+	this.Node_.KvStorage.mux.Lock()
+	for k, v := range receivedMap {
+		var k_hash = hashString(k)
+		if between(p.Id, k_hash, this.Node_.Id, true) {
+			this.Node_.KvStorage.V[k] = v
+			length, err := this.Node_.File.WriteString("put " + k + " " + v + "\n")
+			if err != nil {
+				fmt.Println("actually write:", length, " ", err)
+			}
+		}
+	}
+	this.Node_.KvStorage.mux.Unlock()
+
+	err = client.Call("Node.CompleteMigrate", &FingerType{this.Node_.Ip, this.Node_.Id}, nil)
+	err = client.Call("Node.Notify", &FingerType{this.Node_.Ip, this.Node_.Id}, nil)
+	if err != nil {
+		return false
+	}
+	client.Close()
+	go this.Stabilize()
+	go this.Fix_fingers()
+	go this.CheckPredecessor()
+	return true
 }
 func (this *Client) Ping(addr string) bool {
 	return this.Node_.ping(addr)

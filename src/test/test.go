@@ -30,6 +30,7 @@ type keyval struct {
 }
 
 func main() {
+
 	//s,_:=syscall.Socket(syscall.AF_INET,syscall.SOCK_STREAM,syscall.IPPROTO_TCP)
 	//var reuse byte=1
 	//syscall.Setsockopt(s,syscall.SOL_SOCKET,syscall.SO_REUSEADDR,&reuse,int32(unsafe.Sizeof(reuse)))
@@ -93,6 +94,25 @@ func main() {
 		}
 		for j := i * 5; j <= i*15+15; j++ {
 			nodes[j].Dump()
+		}
+		//force quit and join 5 nodes
+		for j := 0; j < 5; j++ {
+			nodes[j+i*5+5].ForceQuit()
+			time.Sleep(3 * time.Second)
+			fmt.Println("force quit node ", j+i*5+5)
+		}
+		time.Sleep(10 * time.Second)
+		for j := i * 5; j <= i*15+15; j++ {
+			if nodes[j].Node_.Listening {
+				nodes[j].Dump()
+			}
+		}
+		for j := 0; j < 5; j++ {
+			nodes[j+i*5+5] = chord.NewNode(j + i*5 + 5 + 1000)
+			nodes[j+i*5+5].Run(&wg)
+			nodes[j+i*5+5].Join(localAddress + ":" + strconv.Itoa(1000+i*5))
+			fmt.Println("port ", j+i*5+5, " joined at ", 1000+i*5)
+			time.Sleep(3 * time.Second)
 		}
 		//quit 5 nodes
 		for j := 0; j < 5; j++ {
