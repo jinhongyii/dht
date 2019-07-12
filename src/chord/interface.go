@@ -12,3 +12,8 @@ type dhtNode interface {
 	Quit()
 	Ping(addr string) bool
 }
+type dhtAdditive interface {
+	dhtNode
+	AppendTo()
+	RemoveFrom()
+}

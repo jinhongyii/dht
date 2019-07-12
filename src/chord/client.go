@@ -22,9 +22,7 @@ func (this *Client) Create() {
 	this.Node_.KvStorage.V = make(map[string]string)
 	this.Node_.Successors[1].Ip = this.Node_.Ip
 	this.Node_.Successors[1].Id = this.Node_.Id
-	this.Node_.Predecessor = new(FingerType)
-	this.Node_.Predecessor.Ip = this.Node_.Ip
-	this.Node_.Predecessor.Id = this.Node_.Id
+	this.Node_.Predecessor = nil
 	path := strings.ReplaceAll(this.Node_.Ip, ":", "_") + ".backup"
 	this.Node_.File, _ = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
 	this.Node_.recover()
@@ -109,6 +107,7 @@ func (this *Client) Join(otherNode string) bool {
 	err = client.Call("Node.CompleteMigrate", &FingerType{this.Node_.Ip, this.Node_.Id}, nil)
 	err = client.Call("Node.Notify", &FingerType{this.Node_.Ip, this.Node_.Id}, nil)
 	if err != nil {
+		fmt.Println(err, "(join)")
 		return false
 	}
 	client.Close()
@@ -174,7 +173,11 @@ func (this *Client) Dump() {
 		fmt.Print(this.Node_.Finger[i].Ip, " ")
 	}
 	fmt.Println()
-	fmt.Println("successor: ", this.Node_.Successors)
+	fmt.Print("Successors: ")
+	for i := 1; i <= m; i++ {
+		fmt.Print(this.Node_.Successors[i].Ip, " ")
+	}
+	fmt.Println()
 	if this.Node_.Predecessor != nil {
 		fmt.Println("Predecessor: " + this.Node_.Predecessor.Ip)
 	} else {
@@ -285,4 +288,10 @@ func (this *Client) Run(wg *sync.WaitGroup) {
 	this.Node_.Listening = true
 	this.Node_.Ip = GetLocalAddress() + this.Node_.Ip
 	this.Node_.Id = hashString(this.Node_.Ip)
+}
+func (this *Client) AppendTo() {
+
+}
+func (this *Client) RemoveFrom() {
+
 }

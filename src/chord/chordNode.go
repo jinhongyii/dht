@@ -139,7 +139,10 @@ func (this *Node) stabilize() {
 		}
 	}
 
-	_ = client.Call("Node.Notify", &FingerType{this.Ip, this.Id}, nil)
+	err = client.Call("Node.Notify", &FingerType{this.Ip, this.Id}, nil)
+	if err != nil {
+		fmt.Println(err, "(stabilize)")
+	}
 	var suc_Successors [m + 1]FingerType
 	err = client.Call("Node.GetSuccessors", 0, &suc_Successors)
 	if err != nil {
@@ -184,24 +187,33 @@ func (this *Node) ping(ip string) bool {
 	}()
 	select {
 	case success := <-ch:
+		if ip == "10.166.172.2:1080" && !success {
+			time.Sleep(5000 * time.Second)
+		}
 		return success
-	case <-time.After(1 * time.Second):
+	case <-time.After(666 * time.Millisecond):
+		fmt.Println("ping ", ip, " time out")
+		if ip == "10.166.172.2:1080" {
+			time.Sleep(5000 * time.Second)
+		}
 		return false
 	}
 }
 func (this *Node) checkPredecessor() {
 	if this.Predecessor != nil {
 		if !this.ping(this.Predecessor.Ip) {
+			var tmp = this.Predecessor.Ip
 			this.Predecessor = nil
+			fmt.Println(this.Ip, " predecessor set to nil  prev_predecessor:", tmp)
 		}
 	}
 }
 
 func (this *Node) fix_fingers(fingerEntry *int) {
 	var tmp FingerType = this.Finger[*fingerEntry]
-	if this.Ip == "10.166.172.2:1010" {
-		fmt.Println("1010 fix finger")
-	}
+	//if this.Ip == "10.166.172.2:1010" {
+	//	fmt.Println("1010 fix finger")
+	//}
 	ch := make(chan error)
 	go func() {
 		err := this.FindSuccessor(&FindRequest{*jump(this.Id, *fingerEntry), 0}, &this.Finger[*fingerEntry])
@@ -284,9 +296,13 @@ func (this *Node) Notify(otherNode FingerType, lalala *int) error {
 	if this.Predecessor == nil || between(this.Predecessor.Id, otherNode.Id, this.Id, false) {
 		this.Predecessor = new(FingerType)
 		*this.Predecessor = otherNode
+		fmt.Println(this.Ip, " predecessor set to ", otherNode.Ip)
+		return nil
+	} else if this.Predecessor.Ip == otherNode.Ip {
 		return nil
 	}
-	return errors.New("you're not my father")
+	return errors.New(this.Ip + " notify failed ,'father':" + otherNode.Ip + " real pre:" + this.Predecessor.Ip)
+
 }
 
 type FindRequest struct {

@@ -35,30 +35,32 @@ func main() {
 	//var reuse byte=1
 	//syscall.Setsockopt(s,syscall.SOL_SOCKET,syscall.SO_REUSEADDR,&reuse,int32(unsafe.Sizeof(reuse)))
 	init1()
-	var nodes [100]*chord.Client
+	var nodes [160]*chord.Client
 	var wg = sync.WaitGroup{}
 	localAddress := chord.GetLocalAddress()
 	fmt.Println("local address: " + localAddress)
-	port := 1000
+	port := 2000
 	nodes[0] = chord.NewNode(port)
 	nodes[0].Run(&wg)
 	nodes[0].Create()
 	kvMap := make(map[string]string)
 	var nodecnt = 1
 	for i := 0; i < 5; i++ {
-		//join 15 nodes
-		for j := 0; j < 15; j++ {
-			var index = i*15 + j + 1
+		//join 30 nodes
+		for j := 0; j < 30; j++ {
+			var index = i*30 + j + 1
 			port++
 			nodes[index] = chord.NewNode(port)
 			nodes[index].Run(&wg)
-			nodes[index].Join(localAddress + ":" + strconv.Itoa(1000+5*i))
+			if !nodes[index].Join(localAddress + ":" + strconv.Itoa(2000+5*i)) {
+				log.Fatal("join failed")
+			}
 			time.Sleep(1 * time.Second)
-			fmt.Println("port ", port, " joined at 1000")
+			fmt.Println("port ", port, " joined at 2000")
 		}
-		nodecnt += 15
+		nodecnt += 30
 		time.Sleep(4 * time.Second)
-		for j := i * 5; j <= i*15+15; j++ {
+		for j := i * 5; j <= i*30+30; j++ {
 			nodes[j].Dump()
 		}
 		//put 300 kv
@@ -92,7 +94,7 @@ func main() {
 			delete(kvMap, keyList[j])
 			nodes[rand.Intn(nodecnt)+i*5].Del(keyList[j])
 		}
-		for j := i * 5; j <= i*15+15; j++ {
+		for j := i * 5; j <= i*30+30; j++ {
 			nodes[j].Dump()
 		}
 		//force quit and join 5 nodes
@@ -102,16 +104,18 @@ func main() {
 			fmt.Println("force quit node ", j+i*5+5)
 		}
 		time.Sleep(10 * time.Second)
-		for j := i * 5; j <= i*15+15; j++ {
+		for j := i * 5; j <= i*30+30; j++ {
 			if nodes[j].Node_.Listening {
 				nodes[j].Dump()
 			}
 		}
 		for j := 0; j < 5; j++ {
-			nodes[j+i*5+5] = chord.NewNode(j + i*5 + 5 + 1000)
+			nodes[j+i*5+5] = chord.NewNode(j + i*5 + 5 + 2000)
 			nodes[j+i*5+5].Run(&wg)
-			nodes[j+i*5+5].Join(localAddress + ":" + strconv.Itoa(1000+i*5))
-			fmt.Println("port ", j+i*5+5, " joined at ", 1000+i*5)
+			if !nodes[j+i*5+5].Join(localAddress + ":" + strconv.Itoa(2000+i*5)) {
+				log.Fatal("join failed")
+			}
+			fmt.Println("port ", j+i*5+5, " joined at ", 2000+i*5)
 			time.Sleep(3 * time.Second)
 		}
 		//quit 5 nodes
@@ -123,7 +127,7 @@ func main() {
 		}
 		nodecnt -= 5
 		time.Sleep(4 * time.Second)
-		for j := i*5 + 5; j <= i*15+15; j++ {
+		for j := i*5 + 5; j <= i*30+30; j++ {
 			nodes[j].Dump()
 		}
 		//put 300 kv
@@ -158,5 +162,6 @@ func main() {
 			delete(kvMap, keyList[j])
 			nodes[rand.Intn(nodecnt)+i*5+5].Del(keyList[j])
 		}
+		time.Sleep(4 * time.Second)
 	}
 }
