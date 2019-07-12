@@ -159,45 +159,39 @@ func (this *Node) stabilize() {
 }
 
 func (this *Node) ping(ip string) bool {
-	//conn,err:=net.DialTimeout("tcp",ip,time.Second)
-	//if err!=nil && this.Ip=="10.166.172.2:1010" {
-	//	fmt.Println("ping ",ip," error")
-	//	return false
-	//}
-	//encBuf := bufio.NewWriter(conn)
-	//codec := &gobClientCodec{conn, gob.NewDecoder(conn), gob.NewEncoder(encBuf), encBuf}
-	//client:=rpc.NewClientWithCodec(codec)
-	ch := make(chan bool)
-	go func() {
-		client, err := rpc.Dial("tcp", ip)
-		if err != nil {
-			ch <- false
-			return
-		} else {
-			var listening bool
-			_ = client.Call("Node.GetListeningStatus", 0, &listening)
-			client.Close()
-			if listening {
-				ch <- true
-			} else {
+	var success bool
+	for times := 0; times < 3; times++ {
+		ch := make(chan bool)
+		go func() {
+			client, err := rpc.Dial("tcp", ip)
+			if err != nil {
 				ch <- false
+				return
+			} else {
+				var listening bool
+				_ = client.Call("Node.GetListeningStatus", 0, &listening)
+				client.Close()
+				if listening {
+					ch <- true
+				} else {
+					ch <- false
+				}
+				return
 			}
-			return
+		}()
+		select {
+		case success = <-ch:
+			if success {
+				return true
+			} else {
+				continue
+			}
+		case <-time.After(666 * time.Millisecond):
+			fmt.Println("ping ", ip, " time out")
+			continue
 		}
-	}()
-	select {
-	case success := <-ch:
-		if ip == "10.166.172.2:1080" && !success {
-			time.Sleep(5000 * time.Second)
-		}
-		return success
-	case <-time.After(666 * time.Millisecond):
-		fmt.Println("ping ", ip, " time out")
-		if ip == "10.166.172.2:1080" {
-			time.Sleep(5000 * time.Second)
-		}
-		return false
 	}
+	return false
 }
 func (this *Node) checkPredecessor() {
 	if this.Predecessor != nil {
