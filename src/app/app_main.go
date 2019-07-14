@@ -11,8 +11,8 @@ func main() {
 	var app *AppClient
 	connected := false
 	for !quit {
-		var cmd1, cmd2, cmd3 string
-		fmt.Scanln(&cmd1, &cmd2, &cmd3)
+		var cmd1, cmd2, cmd3, cmd4, cmd5 string
+		fmt.Scanln(&cmd1, &cmd2, &cmd3, &cmd4, &cmd5)
 		switch cmd1 {
 		case "port":
 			if !connected {
@@ -68,7 +68,12 @@ func main() {
 			}
 		case "getFile":
 			if connected {
-				if app.getFile(cmd2, cmd3) {
+				if cmd4 == "-s" {
+					tmp, _ := strconv.Atoi(cmd5)
+					if app.GetFileFromMultipleServer(cmd2, cmd3, tmp) {
+						fmt.Println("get file successful")
+					}
+				} else if app.GetFile(cmd2, cmd3) {
 					fmt.Println("get file successful")
 				}
 			} else {

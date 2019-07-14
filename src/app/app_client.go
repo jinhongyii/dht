@@ -33,6 +33,25 @@ func NewClient(port int) *AppClient {
 	c.node.Run(&c.wg)
 	return c
 }
+func getBytesFromFilePart(filepath string, index int, totpartnum int) ([]byte, error) {
+	f, err := os.Open(filepath)
+	if err != nil {
+		return nil, errors.New("no such file")
+	}
+	fileSize, _ := f.Seek(0, 2)
+	var partSize int64
+	if index == totpartnum-1 {
+		partSize = fileSize - (int64(totpartnum)-1)*(fileSize/int64(totpartnum))
+	} else {
+		partSize = fileSize / int64(totpartnum)
+	}
+	total := make([]byte, partSize)
+	f.Seek(int64(index)*(fileSize/int64(totpartnum)), 0)
+	f.Read(total)
+	f.Close()
+	return total, nil
+
+}
 
 //todo: if the file is too big,we need to split it
 func getBytesFromFile(filepath string) ([]byte, error) {
@@ -103,7 +122,7 @@ func (this *AppClient) StopShare(fileHash string) bool {
 }
 
 //randomly choose a server from the available ones
-func (this *AppClient) getFile(filehash string, recvpath string) bool {
+func (this *AppClient) GetFile(filehash string, recvpath string) bool {
 	downloadAddrs, success := this.node.Get(filehash)
 	if !success {
 		fmt.Println("file not shared")
@@ -116,9 +135,7 @@ func (this *AppClient) getFile(filehash string, recvpath string) bool {
 		if e == nil {
 			err := client.Call("AppServer.GetFile", filehash, &received)
 			if err == nil {
-				file, _ := os.Create(recvpath)
-				file.Write(received)
-				file.Close()
+				makeFile(recvpath, received)
 				client.Close()
 				return true
 			}
@@ -126,4 +143,66 @@ func (this *AppClient) getFile(filehash string, recvpath string) bool {
 		}
 	}
 	return false
+}
+
+func makeFile(recvpath string, received []byte) {
+	file, _ := os.Create(recvpath)
+	file.Write(received)
+	file.Close()
+}
+
+func (this *AppClient) GetFileFromMultipleServer(filehash string, recvpath string, maxThread int) bool {
+	downloadAddrs, success := this.node.Get(filehash)
+	if !success {
+		fmt.Println("file not shared")
+		return false
+	}
+	downloadAddrlist := strings.Split(downloadAddrs, "|")
+	cnt := 0
+	var availableList []string
+	for _, addr := range downloadAddrlist {
+		if cnt == maxThread {
+			break
+		}
+		if this.node.Ping(addr) {
+			availableList = append(availableList, addr)
+			cnt++
+		}
+	}
+	fmt.Println("available list get ")
+	filebyte := make([]byte, 0)
+	var tmp = make([][]byte, len(availableList))
+	var wg sync.WaitGroup
+	for i, addr := range availableList {
+		wg.Add(1)
+		go downloadPart(addr, filehash, i, len(availableList), &wg, &tmp[i])
+	}
+	wg.Wait()
+	for _, recvbytes := range tmp {
+		filebyte = append(filebyte, recvbytes...)
+	}
+	makeFile(recvpath, filebyte)
+	return true
+
+}
+func downloadPart(serverIp string, fileHash string, index int, totpartnum int, wg *sync.WaitGroup, ret *[]byte) error {
+	client, e := rpc.Dial("tcp", serverIp)
+	if e != nil {
+		fmt.Println(e)
+		wg.Done()
+		return errors.New("can't dial server,need to filter addr list again")
+	}
+	var received []byte
+	err := client.Call("AppServer.GetFilePart", Getfilerequest{fileHash, index, totpartnum}, &received)
+	if err != nil {
+		fmt.Println(err)
+		wg.Done()
+		client.Close()
+		return errors.New("getFile failed")
+	}
+	client.Close()
+	*ret = received
+	fmt.Println("get part ", index, " successful:", string(received))
+	wg.Done()
+	return nil
 }
