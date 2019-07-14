@@ -1,5 +1,7 @@
 package main
 
+import "os"
+
 type AppServer struct {
 	FileNameMap map[string]string
 }
@@ -30,6 +32,15 @@ func (this *AppServer) GetFilePart(request Getfilerequest, file *[]byte) error {
 		*file = bytes
 		return nil
 	}
+}
+func (this *AppServer) GetFileExistence(filehash string, exist *bool) error {
+	fileAddr, ok := this.FileNameMap[filehash]
+	f, err := os.Open(fileAddr)
+	if err == nil {
+		f.Close()
+	}
+	*exist = ok && err == nil
+	return nil
 }
 func NewServer() *AppServer {
 	server := new(AppServer)

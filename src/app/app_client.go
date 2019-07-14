@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 type AppClient struct {
@@ -111,6 +112,11 @@ func (this *AppClient) Share(filePath string) bool {
 }
 func (this *AppClient) StopShare(fileHash string) bool {
 	//just remove the local ip from remote server
+	_, ok := this.server.FileNameMap[fileHash]
+	if !ok {
+		fmt.Println("file not shared yet")
+		return false
+	}
 	success := this.node.RemoveFrom(fileHash, "|"+this.node.Node_.Ip)
 	if !success {
 		fmt.Println("stop sharing failed.Maybe you haven't shared it or there're some problems with other servers")
@@ -150,7 +156,41 @@ func makeFile(recvpath string, received []byte) {
 	file.Write(received)
 	file.Close()
 }
-
+func (this *AppClient) checkFileExistence(filehash string, serverIp string) bool {
+	var success bool
+	for times := 0; times < 3; times++ {
+		ch := make(chan bool)
+		go func() {
+			client, err := rpc.Dial("tcp", serverIp)
+			if err != nil {
+				ch <- false
+				return
+			} else {
+				var exist bool
+				_ = client.Call("AppServer.GetFileExistence", filehash, &exist)
+				client.Close()
+				if exist {
+					ch <- true
+				} else {
+					ch <- false
+				}
+				return
+			}
+		}()
+		select {
+		case success = <-ch:
+			if success {
+				return true
+			} else {
+				continue
+			}
+		case <-time.After(666 * time.Millisecond):
+			fmt.Println("ping ", serverIp, " time out")
+			continue
+		}
+	}
+	return false
+}
 func (this *AppClient) GetFileFromMultipleServer(filehash string, recvpath string, maxThread int) bool {
 	downloadAddrs, success := this.node.Get(filehash)
 	if !success {
@@ -164,9 +204,11 @@ func (this *AppClient) GetFileFromMultipleServer(filehash string, recvpath strin
 		if cnt == maxThread {
 			break
 		}
-		if this.node.Ping(addr) {
+		if this.checkFileExistence(filehash, addr) {
 			availableList = append(availableList, addr)
 			cnt++
+		} else if addr != "" {
+			this.node.RemoveFrom(filehash, "|"+addr)
 		}
 	}
 	fmt.Println("available list get ")

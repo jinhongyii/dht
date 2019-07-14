@@ -260,8 +260,14 @@ func (this *Node) recover() {
 		words := strings.Split(line, " ")
 		if words[0] == "put" {
 			this.KvStorage.V[words[1]] = words[2][:len(words[2])-1]
-		} else {
+		} else if words[0] == "delete" {
 			delete(this.KvStorage.V, words[1][:len(words[1])-1])
+		} else if words[0] == "append" {
+			this.KvStorage.V[words[1]] += words[2][:len(words[2])-1]
+		} else {
+			tmp := this.KvStorage.V[words[1]]
+			tmp = strings.ReplaceAll(tmp, words[2][:len(words[2])-1], "")
+			this.KvStorage.V[words[1]] = tmp
 		}
 	}
 
@@ -445,6 +451,10 @@ func (this *Node) Append(kv ChordKV, success *bool) error {
 	this.KvStorage.mux.Lock()
 	tmp := this.KvStorage.V[kv.Key]
 	this.KvStorage.V[kv.Key] = tmp + kv.Val
+	length, err := this.File.WriteString("append " + kv.Key + " " + kv.Val + "\n")
+	if err != nil {
+		fmt.Println("actually write:", length, " ", err)
+	}
 	this.KvStorage.mux.Unlock()
 	*success = true
 	return nil
@@ -458,6 +468,10 @@ func (this *Node) Remove(kv ChordKV, success *bool) error {
 		return nil
 	} else {
 		removed := strings.ReplaceAll(tmp, kv.Val, "")
+		length, err := this.File.WriteString("remove " + kv.Key + " " + kv.Val + "\n")
+		if err != nil {
+			fmt.Println("actually write:", length, " ", err)
+		}
 		this.KvStorage.V[kv.Key] = removed
 		this.KvStorage.mux.Unlock()
 		*success = true
