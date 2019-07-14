@@ -11,8 +11,8 @@ func NewNode(port int) *Client {
 	newClient.Node_.Ip = ":" + strconv.Itoa(port)
 	newClient.Node_.Predecessor = nil
 
-	newClient.server = rpc.NewServer()
-	err := newClient.server.Register(&newClient.Node_)
+	newClient.Server = rpc.NewServer()
+	err := newClient.Server.Register(&newClient.Node_)
 	if err != nil {
 		fmt.Println(err)
 	}

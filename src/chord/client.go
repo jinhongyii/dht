@@ -13,7 +13,7 @@ import (
 
 type Client struct {
 	Node_    Node
-	server   *rpc.Server
+	Server   *rpc.Server
 	wg       *sync.WaitGroup
 	listener net.Listener
 }
@@ -217,7 +217,7 @@ func (this *Client) Rejoin(ip string) bool {
 	if e != nil {
 		fmt.Println(e)
 	}
-	go this.server.Accept(this.listener)
+	go this.Server.Accept(this.listener)
 	this.Node_.Listening = true
 	this.Node_.Ip = GetLocalAddress() + this.Node_.Ip
 	this.Node_.Id = hashString(this.Node_.Ip)
@@ -284,14 +284,33 @@ func (this *Client) Run(wg *sync.WaitGroup) {
 	if e != nil {
 		fmt.Println(e)
 	}
-	go this.server.Accept(this.listener)
+	go this.Server.Accept(this.listener)
 	this.Node_.Listening = true
 	this.Node_.Ip = GetLocalAddress() + this.Node_.Ip
 	this.Node_.Id = hashString(this.Node_.Ip)
 }
-func (this *Client) AppendTo() {
-
+func (this *Client) AppendTo(key string, appendPart string) bool {
+	k_hash := hashString(key)
+	var successor FingerType
+	_ = this.Node_.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
+	client, err := rpc.Dial("tcp", successor.Ip)
+	if err != nil {
+		return false
+	}
+	err = client.Call("Node.Append", &ChordKV{key, appendPart}, nil)
+	client.Close()
+	return err == nil
 }
-func (this *Client) RemoveFrom() {
-
+func (this *Client) RemoveFrom(key string, removePart string) bool {
+	k_hash := hashString(key)
+	var successor FingerType
+	_ = this.Node_.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
+	client, err := rpc.Dial("tcp", successor.Ip)
+	if err != nil {
+		return false
+	}
+	var success = false
+	err = client.Call("Node.Remove", &ChordKV{key, removePart}, &success)
+	client.Close()
+	return err == nil && success
 }

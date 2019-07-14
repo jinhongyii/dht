@@ -14,7 +14,6 @@ import (
 	"time"
 )
 
-//todo:implement r-successor
 type ChordKV struct {
 	Key string
 	Val string
@@ -441,4 +440,28 @@ func jump(id *big.Int, fingerentry int) *big.Int {
 	sum := new(big.Int).Add(id, jump)
 
 	return new(big.Int).Mod(sum, hashMod)
+}
+func (this *Node) Append(kv ChordKV, success *bool) error {
+	this.KvStorage.mux.Lock()
+	tmp := this.KvStorage.V[kv.Key]
+	this.KvStorage.V[kv.Key] = tmp + kv.Val
+	this.KvStorage.mux.Unlock()
+	*success = true
+	return nil
+}
+func (this *Node) Remove(kv ChordKV, success *bool) error {
+	this.KvStorage.mux.Lock()
+	tmp, ok := this.KvStorage.V[kv.Key]
+	if !ok {
+		this.KvStorage.mux.Unlock()
+		*success = false
+		return nil
+	} else {
+		removed := strings.ReplaceAll(tmp, kv.Val, "")
+		this.KvStorage.V[kv.Key] = removed
+		this.KvStorage.mux.Unlock()
+		*success = true
+		return nil
+	}
+
 }
