@@ -91,9 +91,9 @@ func (this *Client) Join(otherNode string) bool {
 	if err != nil {
 		return false
 	}
-	this.Node_.KvStorage.mux.Lock()
+	this.Node_.KvStorage.Mux.Lock()
 	for k, v := range receivedMap {
-		var k_hash = hashString(k)
+		var k_hash = HashString(k)
 		if between(p.Id, k_hash, this.Node_.Id, true) {
 			this.Node_.KvStorage.V[k] = v
 			length, err := this.Node_.File.WriteString("put " + k + " " + v + "\n")
@@ -102,7 +102,7 @@ func (this *Client) Join(otherNode string) bool {
 			}
 		}
 	}
-	this.Node_.KvStorage.mux.Unlock()
+	this.Node_.KvStorage.Mux.Unlock()
 
 	err = client.Call("Node.CompleteMigrate", &FingerType{this.Node_.Ip, this.Node_.Id}, nil)
 	err = client.Call("Node.Notify", &FingerType{this.Node_.Ip, this.Node_.Id}, nil)
@@ -116,8 +116,16 @@ func (this *Client) Join(otherNode string) bool {
 	go this.CheckPredecessor()
 	return true
 }
+
+//each string 3 copies
+func (this *Client) SafePut(key string, val string) bool {
+	ok1 := this.Put(key+"1", val)
+	ok2 := this.Put(key+"2", val)
+	ok3 := this.Put(key+"3", val)
+	return ok1 && ok2 && ok3
+}
 func (this *Client) Put(key string, val string) bool {
-	k_hash := hashString(key)
+	k_hash := HashString(key)
 	var successor FingerType
 	_ = this.Node_.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
 	client, err := rpc.Dial("tcp", successor.Ip)
@@ -128,11 +136,39 @@ func (this *Client) Put(key string, val string) bool {
 	client.Close()
 	return err == nil
 }
+func (this *Client) SafeGet(key string) (string, bool) {
+	val1, success1 := this.Get(key + "1")
+	val2, success2 := this.Get(key + "2")
+	val3, success3 := this.Get(key + "3")
+	var val string
+	if success1 {
+		val = val1
+	}
+	if success2 {
+		val = val2
+	}
+	if success3 {
+		val = val3
+	}
+	if success1 || success2 || success3 {
+		if !success1 {
+			this.Put(key+"1", val)
+		}
+		if !success2 {
+			this.Put(key+"2", val)
+		}
+		if !success3 {
+			this.Put(key+"3", val)
+		}
+		return val, true
+	}
+	return "", false
+}
 func (this *Client) Get(key string) (string, bool) {
 	var val string
 	var maxrequest = 3
 	var success = false
-	k_hash := hashString(key)
+	k_hash := HashString(key)
 	var successor FingerType
 	for i := 0; i < maxrequest && !success; i++ {
 		_ = this.Node_.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
@@ -149,8 +185,14 @@ func (this *Client) Get(key string) (string, bool) {
 
 	return val, success
 }
+func (this *Client) SafeDel(key string) bool {
+	ok1 := this.Del(key + "1")
+	ok2 := this.Del(key + "2")
+	ok3 := this.Del(key + "3")
+	return ok1 || ok2 || ok3
+}
 func (this *Client) Del(key string) bool {
-	k_hash := hashString(key)
+	k_hash := HashString(key)
 	var successor FingerType
 	_ = this.Node_.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
 	client, err := rpc.Dial("tcp", successor.Ip)
@@ -220,7 +262,7 @@ func (this *Client) Rejoin(ip string) bool {
 	go this.Server.Accept(this.listener)
 	this.Node_.Listening = true
 	this.Node_.Ip = GetLocalAddress() + this.Node_.Ip
-	this.Node_.Id = hashString(this.Node_.Ip)
+	this.Node_.Id = HashString(this.Node_.Ip)
 	this.Node_.KvStorage.V = make(map[string]string)
 	this.Node_.Predecessor = nil
 	path := strings.ReplaceAll(this.Node_.Ip, ":", "_") + ".backup"
@@ -249,9 +291,9 @@ func (this *Client) Rejoin(ip string) bool {
 	if err != nil {
 		return false
 	}
-	this.Node_.KvStorage.mux.Lock()
+	this.Node_.KvStorage.Mux.Lock()
 	for k, v := range receivedMap {
-		var k_hash = hashString(k)
+		var k_hash = HashString(k)
 		if between(p.Id, k_hash, this.Node_.Id, true) {
 			this.Node_.KvStorage.V[k] = v
 			length, err := this.Node_.File.WriteString("put " + k + " " + v + "\n")
@@ -260,7 +302,7 @@ func (this *Client) Rejoin(ip string) bool {
 			}
 		}
 	}
-	this.Node_.KvStorage.mux.Unlock()
+	this.Node_.KvStorage.Mux.Unlock()
 
 	err = client.Call("Node.CompleteMigrate", &FingerType{this.Node_.Ip, this.Node_.Id}, nil)
 	err = client.Call("Node.Notify", &FingerType{this.Node_.Ip, this.Node_.Id}, nil)
@@ -287,10 +329,16 @@ func (this *Client) Run(wg *sync.WaitGroup) {
 	go this.Server.Accept(this.listener)
 	this.Node_.Listening = true
 	this.Node_.Ip = GetLocalAddress() + this.Node_.Ip
-	this.Node_.Id = hashString(this.Node_.Ip)
+	this.Node_.Id = HashString(this.Node_.Ip)
+}
+func (this *Client) SafeAppend(key string, appendPart string) bool {
+	ok1 := this.AppendTo(key+"1", appendPart)
+	ok2 := this.AppendTo(key+"2", appendPart)
+	ok3 := this.AppendTo(key+"3", appendPart)
+	return ok1 && ok2 && ok3
 }
 func (this *Client) AppendTo(key string, appendPart string) bool {
-	k_hash := hashString(key)
+	k_hash := HashString(key)
 	var successor FingerType
 	_ = this.Node_.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
 	client, err := rpc.Dial("tcp", successor.Ip)
@@ -301,8 +349,19 @@ func (this *Client) AppendTo(key string, appendPart string) bool {
 	client.Close()
 	return err == nil
 }
+func (this *Client) SafeRemove(key string, removepart string) bool {
+	_, success := this.SafeGet(key)
+	if !success {
+		return false
+	} else {
+		ok1 := this.RemoveFrom(key+"1", removepart)
+		ok2 := this.RemoveFrom(key+"2", removepart)
+		ok3 := this.RemoveFrom(key+"3", removepart)
+		return ok1 || ok2 || ok3
+	}
+}
 func (this *Client) RemoveFrom(key string, removePart string) bool {
-	k_hash := hashString(key)
+	k_hash := HashString(key)
 	var successor FingerType
 	_ = this.Node_.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
 	client, err := rpc.Dial("tcp", successor.Ip)

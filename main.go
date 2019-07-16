@@ -2,6 +2,7 @@ package main
 
 import (
 	"chord"
+	"common"
 	"fmt"
 	"strconv"
 	"sync"
@@ -10,7 +11,7 @@ import (
 func main() {
 	var port int
 	fmt.Scanln(&port)
-	node := chord.NewNode(port)
+	node := common.NewNode(port)
 
 	var joined = false
 	var stop = false

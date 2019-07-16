@@ -2,6 +2,7 @@ package main
 
 import (
 	"chord"
+	"common"
 	"fmt"
 	"log"
 	"math/rand"
@@ -40,7 +41,7 @@ func main() {
 	localAddress := chord.GetLocalAddress()
 	fmt.Println("local address: " + localAddress)
 	port := 2000
-	nodes[0] = chord.NewNode(port)
+	nodes[0] = common.NewNode(port)
 	nodes[0].Run(&wg)
 	nodes[0].Create()
 	kvMap := make(map[string]string)
@@ -50,7 +51,7 @@ func main() {
 		for j := 0; j < 30; j++ {
 			var index = i*30 + j + 1
 			port++
-			nodes[index] = chord.NewNode(port)
+			nodes[index] = common.NewNode(port)
 			nodes[index].Run(&wg)
 			if !nodes[index].Join(localAddress + ":" + strconv.Itoa(2000+5*i)) {
 				log.Fatal("join failed")
@@ -110,7 +111,7 @@ func main() {
 			}
 		}
 		for j := 0; j < 5; j++ {
-			nodes[j+i*5+5] = chord.NewNode(j + i*5 + 5 + 2000)
+			nodes[j+i*5+5] = common.NewNode(j + i*5 + 5 + 2000)
 			nodes[j+i*5+5].Run(&wg)
 			if !nodes[j+i*5+5].Join(localAddress + ":" + strconv.Itoa(2000+i*5)) {
 				log.Fatal("join failed")

@@ -20,7 +20,7 @@ type ChordKV struct {
 }
 type Counter struct {
 	V   map[string]string
-	mux sync.Mutex
+	Mux sync.Mutex
 }
 
 const (
@@ -45,7 +45,7 @@ type Node struct {
 }
 
 func (this *Node) Merge(kvpairs *map[string]string, success *bool) error {
-	this.KvStorage.mux.Lock()
+	this.KvStorage.Mux.Lock()
 	for k, v := range *kvpairs {
 		this.KvStorage.V[k] = v
 		length, err := this.File.WriteString("put " + k + " " + v + "\n")
@@ -53,14 +53,14 @@ func (this *Node) Merge(kvpairs *map[string]string, success *bool) error {
 			fmt.Println("actually write:", length, " ", err)
 		}
 	}
-	this.KvStorage.mux.Unlock()
+	this.KvStorage.Mux.Unlock()
 	return nil
 }
 
 func (this *Node) GetKeyValMap(a *int, b *map[string]string) error {
-	this.KvStorage.mux.Lock()
+	this.KvStorage.Mux.Lock()
 	*b = this.KvStorage.V
-	this.KvStorage.mux.Unlock()
+	this.KvStorage.Mux.Unlock()
 	return nil
 }
 
@@ -250,11 +250,11 @@ func (this *Node) clearbackup() {
 func (this *Node) recover() {
 	bufferReader := bufio.NewReader(this.File)
 	this.File.Seek(0, 0)
-	this.KvStorage.mux.Lock()
+	this.KvStorage.Mux.Lock()
 	for {
 		line, e := bufferReader.ReadString('\n')
 		if e != nil {
-			this.KvStorage.mux.Unlock()
+			this.KvStorage.Mux.Unlock()
 			return
 		}
 		words := strings.Split(line, " ")
@@ -274,9 +274,9 @@ func (this *Node) recover() {
 }
 func (this *Node) CompleteMigrate(otherNode FingerType, lala *int) error {
 	var deletion []string
-	this.KvStorage.mux.Lock()
+	this.KvStorage.Mux.Lock()
 	for k, _ := range this.KvStorage.V {
-		if between(this.Predecessor.Id, hashString(k), otherNode.Id, true) {
+		if between(this.Predecessor.Id, HashString(k), otherNode.Id, true) {
 			deletion = append(deletion, k)
 		}
 	}
@@ -287,7 +287,7 @@ func (this *Node) CompleteMigrate(otherNode FingerType, lala *int) error {
 			fmt.Println("actually write:", length, " ", err)
 		}
 	}
-	this.KvStorage.mux.Unlock()
+	this.KvStorage.Mux.Unlock()
 	return nil
 }
 
@@ -353,9 +353,9 @@ func (this *Node) closest_preceding_node(id *big.Int) FingerType {
 	return this.Successors[1]
 }
 func (this *Node) Put_(args *ChordKV, success *bool) error {
-	this.KvStorage.mux.Lock()
+	this.KvStorage.Mux.Lock()
 	this.KvStorage.V[args.Key] = args.Val
-	this.KvStorage.mux.Unlock()
+	this.KvStorage.Mux.Unlock()
 	length, err := this.File.WriteString("put " + args.Key + " " + args.Val + "\n")
 
 	if err != nil {
@@ -365,21 +365,21 @@ func (this *Node) Put_(args *ChordKV, success *bool) error {
 	return nil
 }
 func (this *Node) Get_(key *string, val *string) error {
-	this.KvStorage.mux.Lock()
+	this.KvStorage.Mux.Lock()
 	*val = this.KvStorage.V[*key]
 	if *val == "" {
-		this.KvStorage.mux.Unlock()
+		this.KvStorage.Mux.Unlock()
 		return errors.New("not found key")
 	}
-	this.KvStorage.mux.Unlock()
+	this.KvStorage.Mux.Unlock()
 	fmt.Println(this.Ip + " get " + *key + " => " + *val)
 	return nil
 }
 func (this *Node) Delete_(key *string, success *bool) error {
-	this.KvStorage.mux.Lock()
+	this.KvStorage.Mux.Lock()
 	_, ok := this.KvStorage.V[*key]
 	delete(this.KvStorage.V, *key)
-	this.KvStorage.mux.Unlock()
+	this.KvStorage.Mux.Unlock()
 	length, err := this.File.WriteString("delete " + *key + "\n")
 	if err != nil {
 		fmt.Println("actually write:", length, " ", err)
@@ -434,7 +434,7 @@ const keySize = sha1.Size * 8
 var two = big.NewInt(2)
 var hashMod = new(big.Int).Exp(big.NewInt(2), big.NewInt(keySize), nil)
 
-func hashString(elt string) *big.Int {
+func HashString(elt string) *big.Int {
 	hasher := sha1.New()
 	hasher.Write([]byte(elt))
 	return new(big.Int).SetBytes(hasher.Sum(nil))
@@ -448,22 +448,22 @@ func jump(id *big.Int, fingerentry int) *big.Int {
 	return new(big.Int).Mod(sum, hashMod)
 }
 func (this *Node) Append(kv ChordKV, success *bool) error {
-	this.KvStorage.mux.Lock()
+	this.KvStorage.Mux.Lock()
 	tmp := this.KvStorage.V[kv.Key]
 	this.KvStorage.V[kv.Key] = tmp + kv.Val
 	length, err := this.File.WriteString("append " + kv.Key + " " + kv.Val + "\n")
 	if err != nil {
 		fmt.Println("actually write:", length, " ", err)
 	}
-	this.KvStorage.mux.Unlock()
+	this.KvStorage.Mux.Unlock()
 	*success = true
 	return nil
 }
 func (this *Node) Remove(kv ChordKV, success *bool) error {
-	this.KvStorage.mux.Lock()
+	this.KvStorage.Mux.Lock()
 	tmp, ok := this.KvStorage.V[kv.Key]
 	if !ok {
-		this.KvStorage.mux.Unlock()
+		this.KvStorage.Mux.Unlock()
 		*success = false
 		return nil
 	} else {
@@ -473,7 +473,7 @@ func (this *Node) Remove(kv ChordKV, success *bool) error {
 			fmt.Println("actually write:", length, " ", err)
 		}
 		this.KvStorage.V[kv.Key] = removed
-		this.KvStorage.mux.Unlock()
+		this.KvStorage.Mux.Unlock()
 		*success = true
 		return nil
 	}

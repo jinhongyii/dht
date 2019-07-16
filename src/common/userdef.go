@@ -1,13 +1,14 @@
-package chord
+package common
 
 import (
+	"chord"
 	"fmt"
 	"net/rpc"
 	"strconv"
 )
 
-func NewNode(port int) *Client {
-	newClient := new(Client)
+func NewNode(port int) *chord.Client {
+	newClient := new(chord.Client)
 	newClient.Node_.Ip = ":" + strconv.Itoa(port)
 	newClient.Node_.Predecessor = nil
 
