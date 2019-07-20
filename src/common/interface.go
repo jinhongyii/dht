@@ -2,7 +2,7 @@ package common
 
 import "sync"
 
-type dhtNode interface {
+type DhtNode interface {
 	Get(k string) (string, bool)
 	Put(k string, v string) bool
 	Del(k string) bool
@@ -13,7 +13,7 @@ type dhtNode interface {
 	Ping(addr string) bool
 }
 type dhtAdditive interface {
-	dhtNode
+	DhtNode
 	AppendTo()
 	RemoveFrom()
 }

@@ -1,50 +1,103 @@
 package kademlia
 
-import "math/big"
+import (
+	"math"
+	"math/big"
+	"time"
+)
 
 type RoutingTable struct {
-	buckets [maxbucket]LRUReplacer
-	id      *big.Int
-	ip      string
+	buckets    [maxbucket + 1]LRUReplacer
+	Id         *big.Int
+	Ip         string
+	RefreshMap [maxbucket + 1]time.Time
 }
 
-func (this *RoutingTable) update(header *RPCHeader) {
-	bucketid := distance2(header.Id, this.id).BitLen()
-	this.buckets[bucketid].Insert(AddrType{Ip: header.Ip, Id: header.Id})
+func (this *RoutingTable) update(header *Contact) {
+	bucketid := distance2(header.Id, this.Id).BitLen()
+	this.buckets[bucketid].Insert(Contact{Ip: header.Ip, Id: header.Id})
 	if this.buckets[bucketid].Size() > k {
-		if !ping(RPCHeader{Ip: this.ip, Id: this.id}, this.buckets[bucketid].front().Ip) {
-			var deleted AddrType
-			this.buckets[bucketid].Victim(&deleted)
-		} else {
+
+		if online, contact := ping(Contact{Ip: this.Ip, Id: this.Id}, this.buckets[bucketid].Front().Value.(Contact).Ip); online {
 			this.buckets[bucketid].UndoInsertion()
+			this.buckets[bucketid].Insert(contact)
+		} else {
+			var deleted Contact
+			this.buckets[bucketid].Victim(&deleted)
 		}
 	}
 }
-func (this *RoutingTable) getKClosest(id *big.Int) []AddrType {
-	ret := make([]AddrType, 0)
-	bucketid := id.BitLen()
-	if this.buckets[bucketid].Size() == k {
-		tmp := this.buckets[bucketid].ToArray()
-		for _, i := range tmp {
-			ret = append(ret, i)
+func (this *RoutingTable) getClosest(id *big.Int, requiredNum int) []Contact {
+	ret := make(Contacts, 0)
+
+	id_bits := distance2(id, this.Id).Bits()
+	totlen := maxbucket
+	var filled [maxbucket + 1]bool
+	for i, bit := range id_bits {
+		if bit == 1 {
+			if full := tryFill(&this.buckets[totlen-i], &ret, requiredNum); full {
+				return ret
+			}
+			filled[totlen-i] = true
 		}
-		return ret
-	} else {
-		tmp := this.buckets[bucketid].ToArray()
-		for _, i := range tmp {
-			ret = append(ret, i)
-		}
-		var pq = make(PriorityQueue, 0)
-		for i := 1; i < k && i != bucketid; i++ {
-			tmp = this.buckets[i].ToArray()
-			for _, j := range tmp {
-				pq.Push(&Item{j, distance2(j.Id, id), 0})
+	}
+	for i := 1; i <= maxbucket; i++ {
+		if !filled[i] {
+			if full := tryFill(&this.buckets[i], &ret, requiredNum); full {
+				return ret
 			}
 		}
-		for i := 0; len(ret) < k && pq.Len() > 0; i++ {
-			item := pq.Pop()
-			ret = append(ret, item.(*Item).value)
+	}
+	return ret
+
+}
+func tryFill(replacer *LRUReplacer, contacts *Contacts, required int) bool {
+	for i := replacer.Front(); i != nil; i = i.Next() {
+		if len(*contacts) == required {
+			return true
 		}
-		return ret
+		*contacts = append(*contacts, i.Value.(Contact))
+	}
+	return len(*contacts) == required
+}
+func (rt *RoutingTable) Init() {
+
+	for i := 1; i <= maxbucket; i++ {
+		rt.buckets[i].Init()
+	}
+}
+func (this *RoutingTable) calculateExpire(id *big.Int) time.Duration {
+	dis := distance2(id, this.Id)
+	bucketid := dis.BitLen()
+	sum := 0
+	for i := 1; i < bucketid; i++ {
+		sum += this.buckets[i].Len()
+	}
+	for i := this.buckets[bucketid].Front(); i != nil; i = i.Next() {
+		if distance2(id, i.Value.(Contact).Id).Cmp(dis) < 0 {
+			sum++
+		}
+	}
+	return time.Duration(int64(float64(tExpire) * math.Exp(1-float64(sum)/float64(k)))) //这里没有按照xlattice上面的写，用的负指数相关
+}
+func (this *RoutingTable) getbucketid(id *big.Int) int {
+	return distance2(id, this.Id).BitLen()
+}
+func (this *Node) refresh() {
+	unoccupied := true
+	for i := 1; i <= maxbucket; i++ {
+		if unoccupied {
+			if this.RoutingTable.buckets[i].Len() > 0 {
+				unoccupied = false
+			}
+		} else {
+			if time.Now().After(this.RoutingTable.RefreshMap[i]) {
+				tmp := big.NewInt(0)
+				tmp.Exp(big.NewInt(2), big.NewInt(int64(i-1)), nil)
+				tmp.Xor(tmp, this.RoutingTable.Id)
+				this.IterativeFindNode_(tmp)
+				this.RoutingTable.RefreshMap[i].Add(tRefresh)
+			}
+		}
 	}
 }

@@ -60,6 +60,7 @@ func main() {
 		case "put":
 			if joined {
 				(*node).Put(str2, str3)
+				fmt.Println("put successful")
 			} else {
 				fmt.Println("not joined in a chord ring")
 			}
@@ -74,20 +75,22 @@ func main() {
 			} else {
 				fmt.Println("not joined in a chord ring")
 			}
-		case "delete":
-			if joined {
-				success := (*node).Del(str2)
-				if !success {
-					fmt.Println("the key is not in the ring")
-				}
-			} else {
-				fmt.Println("not joined in a chord ring")
-			}
-		case "dump":
-			if joined {
-				(*node).Dump()
-			}
+			//case "delete":
+			//	if joined {
+			//		success := (*node).Del(str2)
+			//		if !success {
+			//			fmt.Println("the key is not in the ring")
+			//		}
+			//	} else {
+			//		fmt.Println("not joined in a chord ring")
+			//	}
+			//case "dump":
+			//	if joined {
+			//		(*node).Dump()
+			//	}
+			//}
 		}
+
 	}
 	wg.Wait()
 }

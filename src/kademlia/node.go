@@ -5,30 +5,31 @@ import (
 	"fmt"
 	"math/big"
 	"net/rpc"
+	"sort"
 	"time"
 )
 
 const (
-	maxbucket = 160
-	k         = 20
-	alpha     = 3
+	maxbucket  = 160
+	k          = 20
+	alpha      = 3
+	tExpire    = 864 * time.Second
+	tRefresh   = 36 * time.Second
+	tReplicate = 36 * time.Second
+	tRepublish = 864 * time.Second
 )
 
 type Counter chord.Counter
-type AddrType chord.FingerType
-type RPCHeader AddrType
+
 type Node struct {
 	//1-base
 	//todo:没加锁不知道对不对
-	routingTable RoutingTable //lru里放addrtype
-	listening    bool
-	kvStorage    Counter
+	RoutingTable RoutingTable //lru里放addrtype
+	Listening    bool
+	KvStorage    MemStore
 }
 
-func (this *Node) lookup(id *big.Int) {
-
-}
-func distance(addr1 *AddrType, addr2 *AddrType) *big.Int {
+func distance(addr1 *Contact, addr2 *Contact) *big.Int {
 	return distance2(addr1.Id, addr2.Id)
 }
 func distance2(id1 *big.Int, id2 *big.Int) *big.Int {
@@ -37,76 +38,170 @@ func distance2(id1 *big.Int, id2 *big.Int) *big.Int {
 	return dis
 }
 
-//func (this *Node)getKClosest(id *big.Int)[]AddrType{
-//	ret:=make([]AddrType,0)
-//	bucket:=id.BitLen()
-//	if this.routingTable[bucket].Size()==k{
-//		tmp:=this.routingTable[bucket].ToArray()
-//		for _,i:=range tmp{
-//			ret =append(ret,i)
-//		}
-//		return ret
-//	}else {
-//		tmp:=this.routingTable[bucket].ToArray()
-//		for _,i:=range tmp{
-//			ret =append(ret,i)
-//		}
-//		var pq =make(PriorityQueue,0)
-//		for i:=1;i<bucket;i++{
-//			tmp=this.routingTable[i].ToArray()
-//			for _,j:=range tmp {
-//				pq.Push(&Item{&j,distance(&j,id),0})
-//			}
-//		}
-//		for i:=0;len(ret)<k;i++{
-//			item:=pq.Pop()
-//			ret =append(ret,*item.(*Item).value)
-//		}
-//		for
-//		return ret
-//	}
-//}
-
-type LookUpType struct {
-	addr  AddrType
-	query bool
-}
-
-func (this *Node) lookUp(id *big.Int) []AddrType {
-
-	lookupAddr := AddrType{Ip: ip, Id: chord.HashString(ip)}
-	k_closest := this.routingTable.getKClosest(lookupAddr.Id)
-	pq := make(PriorityQueue, 0)
-	for _, tmp := range k_closest {
-		pq.Push(&Item{tmp})
+func (this *Node) IterativeFindNode_(k_hash *big.Int) []Contact {
+	tmp := this.RoutingTable.getClosest(k_hash, alpha)
+	bucketid := this.RoutingTable.getbucketid(k_hash)
+	this.RoutingTable.RefreshMap[bucketid] = time.Now().Add(tRefresh)
+	shortList := make(Contacts, 0)
+	seen := make(map[string]struct{})
+	for i := 0; i < alpha && i < len(tmp); i++ {
+		seen[tmp[i].Ip] = struct{}{}
 	}
+	seen[this.RoutingTable.Ip] = struct{}{}
+	probenum := 0
+	ch := make(chan FindNodeReturn, 20)
+
+	for ; probenum < alpha && probenum < len(tmp); probenum++ {
+		contact := tmp[probenum]
+		go this.findNode(contact.Ip, ch, k_hash)
+	}
+
+	for probenum > 0 {
+		recvClosest := <-ch
+		probenum--
+		if recvClosest.Header.Id == nil {
+			continue
+		}
+		shortList = append(shortList, recvClosest.Header)
+		this.RoutingTable.update(&recvClosest.Header)
+		for _, contact := range recvClosest.Closest { //todo:loose parallelism should limit connects?
+			if _, ok := seen[contact.Ip]; !ok {
+				seen[contact.Ip] = struct{}{}
+				go this.findNode(contact.Ip, ch, k_hash)
+				probenum++
+			}
+		}
+	}
+	sort.Slice(shortList, func(i, j int) bool {
+		disi := distance2(shortList[i].Id, k_hash)
+		disj := distance2(shortList[j].Id, k_hash)
+		return disi.Cmp(disj) < 0
+	})
+	if len(shortList) > k {
+		shortList = shortList[:k]
+	}
+	return shortList
 }
-func (this *Node) findNode(ip string, recv chan []AddrType) {
+func (this *Node) IterativeFindNode(key string) []Contact {
+	k_hash := chord.HashString(key)
+	return this.IterativeFindNode_(k_hash)
+}
+func (this *Node) findNode(ip string, recv chan FindNodeReturn, target *big.Int) {
+	if !this.ping(ip) {
+		recv <- FindNodeReturn{Contact{}, nil}
+		return
+	}
 	client, e := rpc.Dial("tcp", ip)
-	if e == nil {
+	if e != nil {
+		fmt.Println(e)
 
+		recv <- FindNodeReturn{Contact{}, nil}
+		return
 	}
+	var ret FindNodeReturn
+	err := client.Call("Node.RPCFindNode",
+		FindNodeRequest{Contact{this.RoutingTable.Id, this.RoutingTable.Ip}, target},
+		&ret)
+	_ = client.Close()
+	if err != nil {
+		fmt.Println(err)
+		recv <- FindNodeReturn{Contact{}, nil}
+		return
+	}
+	recv <- ret
+}
+func (this *Node) IterativeFindValue(key string) (string, bool) {
+	val, success := this.KvStorage.get(key)
+	if success {
+		return val, true
+	}
+	k_hash := chord.HashString(key)
+	tmp := this.RoutingTable.getClosest(k_hash, alpha)
+	bucketid := this.RoutingTable.getbucketid(k_hash)
+	this.RoutingTable.RefreshMap[bucketid] = time.Now().Add(tRefresh)
+	shortList := make(Contacts, 0)
+	seen := make(map[string]struct{})
+	for i := 0; i < alpha && i < len(tmp); i++ {
+		seen[tmp[i].Ip] = struct{}{}
+	}
+	seen[this.RoutingTable.Ip] = struct{}{}
+	probenum := 0
+	ch := make(chan FindValueReturn, 20)
+
+	for ; probenum < alpha && probenum < len(tmp); probenum++ {
+		contact := tmp[probenum]
+		go this.findVal(contact.Ip, ch, key, k_hash)
+	}
+	for probenum > 0 {
+		recvValue := <-ch
+		probenum--
+		if recvValue.Header.Id == nil {
+			continue
+		}
+		this.RoutingTable.update(&recvValue.Header)
+		if recvValue.Closest == nil {
+			sort.Slice(shortList, func(i, j int) bool {
+				disi := distance2(shortList[i].Id, k_hash)
+				disj := distance2(shortList[j].Id, k_hash)
+				return disi.Cmp(disj) < 0
+			})
+			if shortList.Len() != 0 {
+				this.store(shortList[0].Ip, key, recvValue.Val, this.RoutingTable.calculateExpire(shortList[0].Id), false)
+			}
+			fmt.Println("get ", recvValue.Val, " at ", recvValue.Header.Ip, " from ", this.RoutingTable.Ip)
+			return recvValue.Val, true
+		}
+		shortList = append(shortList, recvValue.Header)
+		for _, contact := range recvValue.Closest { //todo:loose parallelism should limit connects?
+			if _, ok := seen[contact.Ip]; !ok {
+				seen[contact.Ip] = struct{}{}
+				go this.findVal(contact.Ip, ch, key, k_hash)
+				probenum++
+			}
+		}
+	}
+	return "", false
+}
+func (this *Node) findVal(ip string, recv chan FindValueReturn, key string, key_hash *big.Int) {
+	if !this.ping(ip) {
+		recv <- FindValueReturn{Contact{}, nil, ""}
+		return
+	}
+	client, e := rpc.Dial("tcp", ip)
+	if e != nil {
+		recv <- FindValueReturn{Contact{}, nil, ""}
+		return
+	}
+
+	var ret FindValueReturn
+	err := client.Call("Node.RPCFindValue",
+		FindValueRequest{Contact{this.RoutingTable.Id, this.RoutingTable.Ip},
+			key_hash, key}, &ret)
+	_ = client.Close()
+	if err != nil {
+		recv <- FindValueReturn{Contact{}, nil, ""}
+		return
+	}
+	recv <- ret
 }
 
-type PingRequest struct {
-	RPCHeader
-}
-
-func ping(header RPCHeader, ip string) bool {
+func ping(header Contact, ip string) (bool, Contact) {
 	var success bool
-	for times := 0; times < 3; times++ { //todo:maybe we need to reduce retry times
+	for times := 0; times < 1; times++ { //todo:maybe we need to reduce retry times
 		ch := make(chan bool)
+		ch2 := make(chan Contact)
 		go func() {
 			client, err := rpc.Dial("tcp", ip)
 			if err != nil {
 				ch <- false
 				return
 			} else {
-				var success bool
-				_ = client.Call("Node.RPCPing", header, &success)
-				client.Close()
-				if success {
+				var ret PingReturn
+				_ = client.Call("Node.RPCPing", header, &ret)
+				_ = client.Close()
+				if ret.Success {
 					ch <- true
+					ch2 <- ret.Header
 				} else {
 					ch <- false
 				}
@@ -116,69 +211,168 @@ func ping(header RPCHeader, ip string) bool {
 		select {
 		case success = <-ch:
 			if success {
-				return true
+				return true, <-ch2
 			} else {
+				fmt.Println("ping ", ip, " failed")
 				continue
 			}
-		case <-time.After(666 * time.Millisecond):
+		case <-time.After(100 * time.Millisecond):
 			fmt.Println("ping ", ip, " time out")
 			continue
 		}
 	}
-	return false
+	return false, Contact{}
 }
-func (this *Node) RPCPing(header RPCHeader, success *bool) error {
-	this.routingTable.update(&header)
-	*success = this.listening
+func (this *Node) store(ip string, key string, val string, expire time.Duration, replicate bool) bool {
+	client, e := rpc.Dial("tcp", ip)
+	if e != nil {
+		fmt.Println(e)
+		return false
+	}
+	var ret StoreReturn
+	err := client.Call("Node.RPCStore", StoreRequest{
+		Pair:      KVPair{key, val},
+		Header:    Contact{Ip: this.RoutingTable.Ip, Id: this.RoutingTable.Id},
+		Expire:    expire,
+		Replicate: replicate,
+	}, &ret)
+	_ = client.Close()
+	if err != nil {
+		fmt.Println(err)
+		return false
+	}
+	this.RoutingTable.update(&ret.Header)
+	return ret.Success
+}
+func (this *Node) ping(ip string) bool {
+	success, ret := ping(Contact{this.RoutingTable.Id, this.RoutingTable.Ip}, ip)
+	if success {
+		this.RoutingTable.update(&ret)
+		return true
+	} else {
+		return false
+	}
+}
+
+type PingReturn struct {
+	Success bool
+	Header  Contact
+}
+
+func (this *Node) RPCPing(header Contact, ret *PingReturn) error {
+	this.RoutingTable.update(&header)
+	ret.Success = this.Listening
+	ret.Header = Contact{this.RoutingTable.Id, this.RoutingTable.Ip}
 	return nil
 }
 
 type KVPair struct {
-	key string
-	val string
+	Key string
+	Val string
 }
 type StoreRequest struct {
-	pair   KVPair
-	header RPCHeader
+	Pair      KVPair
+	Header    Contact
+	Expire    time.Duration
+	Replicate bool
+}
+type StoreReturn struct {
+	Success bool
+	Header  Contact
 }
 
-func (this *Node) RPCStore(request StoreRequest, success *bool) error {
-	this.routingTable.update(&request.header)
-	this.kvStorage.Mux.Lock()
-	this.kvStorage.V[request.pair.key] = request.pair.val
-	this.kvStorage.Mux.Unlock()
+//used for publish replicate and republish
+func (this *Node) IterativeStore(key string, val string, origin bool) {
+	k_closest := this.IterativeFindNode(key)
+	if origin {
+		this.KvStorage.put(key, val, true, 0, false)
+		for _, contact := range k_closest {
+			this.store(contact.Ip, key, val, tExpire, true)
+		}
+	} else {
+		for _, contact := range k_closest {
+			this.store(contact.Ip, key, val, 0, true)
+		}
+	}
+}
+func (this *Node) RPCStore(request StoreRequest, ret *StoreReturn) error {
+	fmt.Println("put ", request.Pair, " at ", this.RoutingTable.Ip, " from ", request.Header.Ip)
+	this.RoutingTable.update(&request.Header)
+	this.KvStorage.put(request.Pair.Key, request.Pair.Val, false, request.Expire, request.Replicate)
+	ret.Success = true
+	ret.Header = Contact{this.RoutingTable.Id, this.RoutingTable.Ip}
 	return nil
 }
 
 type FindNodeRequest struct {
-	header RPCHeader
-	id     *big.Int
+	Header Contact
+	Id     *big.Int
+}
+type FindNodeReturn struct {
+	Header  Contact
+	Closest Contacts
 }
 
-func (this *Node) RPCFindNode(request FindNodeRequest, closest *[]AddrType) error {
-	this.routingTable.update(&request.header)
-	*closest = this.routingTable.getKClosest(request.id)
+func (this *Node) RPCFindNode(request FindNodeRequest, ret *FindNodeReturn) error {
+	this.RoutingTable.update(&request.Header)
+	ret.Closest = this.RoutingTable.getClosest(request.Id, k)
+	ret.Header = Contact{this.RoutingTable.Id, this.RoutingTable.Ip}
+
 	return nil
 }
 
 type FindValueRequest struct {
-	header RPCHeader
-	hashId *big.Int
-	key    string
+	Header Contact
+	HashId *big.Int
+	Key    string
 }
 type FindValueReturn struct {
-	addr []AddrType
-	val  string
+	Header  Contact
+	Closest []Contact
+	Val     string
 }
 
 func (this *Node) RPCFindValue(request FindValueRequest, ret *FindValueReturn) error {
-	this.routingTable.update(&request.header)
-	this.kvStorage.Mux.Lock()
-	val, ok := this.kvStorage.V[request.key]
+	this.RoutingTable.update(&request.Header)
+	val, ok := this.KvStorage.get(request.Key)
 	if ok {
-		(*ret).val = val
+		//fmt.Println("get ",request.Key," at ",this.RoutingTable.Ip," from ",request.Header.Ip)
+		(*ret).Val = val
 	} else {
-		(*ret).addr = this.routingTable.getKClosest(request.hashId)
+		(*ret).Closest = this.RoutingTable.getClosest(request.HashId, k)
 	}
+	ret.Header = Contact{this.RoutingTable.Id, this.RoutingTable.Ip}
 	return nil
 }
+
+//type DeleteRequest struct {
+//	Header Contact
+//	key    string
+//}
+
+//func (this *Node)RPCDelete(request DeleteRequest,success *bool)error{
+//	this.RoutingTable.update(&request.Header)
+//	this.KvStorage.Mux.Lock()
+//	delete(this.KvStorage.V, request.key)
+//	this.KvStorage.Mux.Unlock()
+//	*success=true
+//	return nil
+//}
+//func (this*Node)delete(Ip string,key string)bool{
+//	client,e:=rpc.Dial("tcp",Ip)
+//	if e!=nil{
+//		fmt.Println(e)
+//		return false
+//	}
+//	var success bool
+//	err:=client.Call("Node.RPCDelete",DeleteRequest{
+//		Header:Contact{this.RoutingTable.Ip,this.RoutingTable.Id},
+//		key:key,
+//	},&success)
+//	client.Close()
+//	if err!=nil{
+//		fmt.Println(err)
+//		return false
+//	}
+//	return true
+//}
