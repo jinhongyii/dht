@@ -35,7 +35,7 @@ type keyval struct {
 
 func main() {
 	go func() {
-		log.Println(http.ListenAndServe("localhost:8888", nil))
+		log.Println(http.ListenAndServe("localhost:6060", nil))
 	}()
 	//s,_:=syscall.Socket(syscall.AF_INET,syscall.SOCK_STREAM,syscall.IPPROTO_TCP)
 	//var reuse byte=1
@@ -45,47 +45,54 @@ func main() {
 	var wg = sync.WaitGroup{}
 	localAddress := chord.GetLocalAddress()
 	fmt.Println("local address: " + localAddress)
-	port := 2000
+	port := 3000
 	nodes[0] = common.NewNode(port)
 	nodes[0].Run(&wg)
 	nodes[0].Create()
 	kvMap := make(map[string]string)
 	var nodecnt = 1
 	for i := 0; i < 5; i++ {
-		//join 30 nodes
-		for j := 0; j < 30; j++ {
-			var index = i*30 + j + 1
+		//join 15 nodes
+		for j := 0; j < 15; j++ {
+			var index = i*15 + j + 1
 			port++
 			nodes[index] = common.NewNode(port)
 			nodes[index].Run(&wg)
-			if !nodes[index].Join(localAddress + ":" + strconv.Itoa(2000+5*i)) {
-				log.Fatal("join failed at ", 2000+5*i)
+			if !nodes[index].Join(localAddress + ":" + strconv.Itoa(3000+5*i)) {
+				log.Fatal("join failed at ", 3000+5*i)
 			}
 			time.Sleep(1 * time.Second)
-			fmt.Println("port ", port, " joined at", 2000+5*i)
+			fmt.Println("port ", port, " joined at", 3000+5*i)
 		}
-		nodecnt += 30
+		nodecnt += 15
 		time.Sleep(4 * time.Second)
-		for j := i * 5; j <= i*30+30; j++ {
+		for j := i * 5; j <= i*15+15; j++ {
 			nodes[j].Dump()
 		}
-		//put 300 kv
-		for j := 0; j < 300; j++ {
+		//put 30 kv
+		for j := 0; j < 30; j++ {
 			k := RandStringRunes(30)
 			v := RandStringRunes(30)
 			kvMap[k] = v
-			nodes[rand.Intn(nodecnt)+i*5].Put(k, v)
+			tmp := rand.Intn(nodecnt) + i*5
+			fmt.Println("put ", k, " => ", v, " from node ", tmp)
+			nodes[tmp].Put(k, v)
 		}
-		//get 200 kv and check correctness
-		var keyList [200]string
+		//get 20 kv and check correctness
+		var keyList [20]string
 		cnt := 0
 		for k, v := range kvMap {
-			if cnt == 200 {
+			if cnt == 20 {
 				break
 			}
 			var tmp = rand.Intn(nodecnt) + i*5
 			fetchedVal, success := nodes[tmp].Get(k)
 			if !success {
+				closest := nodes[tmp].Node_.RoutingTable.GetClosest(chord.HashString(k), kademlia.K)
+				fmt.Println("closest: ", closest)
+				for j := i * 5; j <= i*15+15; j++ {
+					nodes[j].Dump()
+				}
 				fetchedVal, success = nodes[tmp].Get(k)
 				log.Fatal("error:can't find key ", k, " from node ", tmp)
 			}
@@ -100,9 +107,9 @@ func main() {
 		//	delete(kvMap, keyList[j])
 		//	nodes[rand.Intn(nodecnt)+i*5].Del(keyList[j])
 		//}
-		//for j := i * 5; j <= i*30+30; j++ {
-		//	nodes[j].Dump()
-		//}
+		for j := i * 5; j <= i*15+15; j++ {
+			nodes[j].Dump()
+		}
 		////force quit and join 5 nodes
 		//for j := 0; j < 5; j++ {
 		//	nodes[j+i*5+5].ForceQuit()
@@ -116,12 +123,12 @@ func main() {
 		//	}
 		//}
 		//for j := 0; j < 5; j++ {
-		//	nodes[j+i*5+5] = common.NewNode(j + i*5 + 5 + 2000)
+		//	nodes[j+i*5+5] = common.NewNode(j + i*5 + 5 + 3000)
 		//	nodes[j+i*5+5].Run(&wg)
-		//	if !nodes[j+i*5+5].Join(localAddress + ":" + strconv.Itoa(2000+i*5)) {
+		//	if !nodes[j+i*5+5].Join(localAddress + ":" + strconv.Itoa(3000+i*5)) {
 		//		log.Fatal("join failed")
 		//	}
-		//	fmt.Println("port ", j+i*5+5, " joined at ", 2000+i*5)
+		//	fmt.Println("port ", j+i*5+5, " joined at ", 3000+i*5)
 		//	time.Sleep(3 * time.Second)
 		//}
 		//quit 5 nodes
@@ -129,32 +136,38 @@ func main() {
 			nodes[j+i*5].Quit()
 			fmt.Println("quit ", j+i*5, " node")
 			time.Sleep(3 * time.Second)
-			nodes[j+i*5+1].Dump()
+			//nodes[j+i*5+1].Dump()
 		}
 		nodecnt -= 5
-		time.Sleep(4 * time.Second)
-		for j := i*5 + 5; j <= i*30+30; j++ {
+		time.Sleep(60 * time.Second)
+		for j := i*5 + 5; j <= i*15+15; j++ {
 			nodes[j].Dump()
 		}
-		//put 300 kv
-		for j := 0; j < 300; j++ {
+		//put 30 kv
+		for j := 0; j < 30; j++ {
 			k := RandStringRunes(30)
 			v := RandStringRunes(30)
 			kvMap[k] = v
 			tmp := rand.Intn(nodecnt) + i*5 + 5
+			fmt.Println("put ", k, " => ", v, " from node ", tmp)
 			nodes[tmp].Put(k, v)
-			nodes[tmp].Dump()
+			//nodes[tmp].Dump()
 		}
-		//get 200 kv and check correctness
+		//get 20 kv and check correctness
 
 		cnt = 0
 		for k, v := range kvMap {
-			if cnt == 200 {
+			if cnt == 20 {
 				break
 			}
 			var tmp = rand.Intn(nodecnt) + i*5 + 5
 			fetchedVal, success := nodes[tmp].Get(k)
 			if !success {
+				closest := nodes[tmp].Node_.RoutingTable.GetClosest(chord.HashString(k), kademlia.K)
+				fmt.Println("closest: ", closest)
+				for j := i*5 + 5; j <= i*15+15; j++ {
+					nodes[j].Dump()
+				}
 				fetchedVal, success = nodes[tmp].Get(k)
 				log.Fatal("error:can't find key ", k, " from node ", tmp)
 

@@ -11,9 +11,9 @@ import (
 
 const (
 	maxbucket  = 160
-	k          = 20
+	K          = 15 //debug mode
 	alpha      = 3
-	tExpire    = 864 * time.Second
+	tExpire    = 874 * time.Second
 	tRefresh   = 36 * time.Second
 	tReplicate = 36 * time.Second
 	tRepublish = 864 * time.Second
@@ -39,7 +39,7 @@ func distance2(id1 *big.Int, id2 *big.Int) *big.Int {
 }
 
 func (this *Node) IterativeFindNode_(k_hash *big.Int) []Contact {
-	tmp := this.RoutingTable.getClosest(k_hash, alpha)
+	tmp := this.RoutingTable.GetClosest(k_hash, K)
 	bucketid := this.RoutingTable.getbucketid(k_hash)
 	this.RoutingTable.RefreshMap[bucketid] = time.Now().Add(tRefresh)
 	shortList := make(Contacts, 0)
@@ -50,12 +50,13 @@ func (this *Node) IterativeFindNode_(k_hash *big.Int) []Contact {
 	seen[this.RoutingTable.Ip] = struct{}{}
 	probenum := 0
 	ch := make(chan FindNodeReturn, 20)
-
-	for ; probenum < alpha && probenum < len(tmp); probenum++ {
-		contact := tmp[probenum]
-		go this.findNode(contact.Ip, ch, k_hash)
+	for i := 0; probenum < alpha && probenum < len(tmp) && i < len(tmp); i++ {
+		contact := tmp[i]
+		if this.ping(contact.Ip) {
+			go this.findNode(contact.Ip, ch, k_hash)
+			probenum++
+		}
 	}
-
 	for probenum > 0 {
 		recvClosest := <-ch
 		probenum--
@@ -77,8 +78,8 @@ func (this *Node) IterativeFindNode_(k_hash *big.Int) []Contact {
 		disj := distance2(shortList[j].Id, k_hash)
 		return disi.Cmp(disj) < 0
 	})
-	if len(shortList) > k {
-		shortList = shortList[:k]
+	if len(shortList) > K {
+		shortList = shortList[:K]
 	}
 	return shortList
 }
@@ -87,7 +88,9 @@ func (this *Node) IterativeFindNode(key string) []Contact {
 	return this.IterativeFindNode_(k_hash)
 }
 func (this *Node) findNode(ip string, recv chan FindNodeReturn, target *big.Int) {
+	//fmt.Println("send findNode to ",ip)
 	if !this.ping(ip) {
+		this.RoutingTable.failNode(Contact{chord.HashString(ip), ip})
 		recv <- FindNodeReturn{Contact{}, nil}
 		return
 	}
@@ -98,11 +101,12 @@ func (this *Node) findNode(ip string, recv chan FindNodeReturn, target *big.Int)
 		recv <- FindNodeReturn{Contact{}, nil}
 		return
 	}
+	defer client.Close()
 	var ret FindNodeReturn
 	err := client.Call("Node.RPCFindNode",
 		FindNodeRequest{Contact{this.RoutingTable.Id, this.RoutingTable.Ip}, target},
 		&ret)
-	_ = client.Close()
+
 	if err != nil {
 		fmt.Println(err)
 		recv <- FindNodeReturn{Contact{}, nil}
@@ -116,7 +120,7 @@ func (this *Node) IterativeFindValue(key string) (string, bool) {
 		return val, true
 	}
 	k_hash := chord.HashString(key)
-	tmp := this.RoutingTable.getClosest(k_hash, alpha)
+	tmp := this.RoutingTable.GetClosest(k_hash, K)
 	bucketid := this.RoutingTable.getbucketid(k_hash)
 	this.RoutingTable.RefreshMap[bucketid] = time.Now().Add(tRefresh)
 	shortList := make(Contacts, 0)
@@ -128,9 +132,13 @@ func (this *Node) IterativeFindValue(key string) (string, bool) {
 	probenum := 0
 	ch := make(chan FindValueReturn, 20)
 
-	for ; probenum < alpha && probenum < len(tmp); probenum++ {
-		contact := tmp[probenum]
-		go this.findVal(contact.Ip, ch, key, k_hash)
+	for i := 0; probenum < alpha && probenum < len(tmp) && i < len(tmp); i++ {
+		contact := tmp[i]
+		if this.ping(contact.Ip) {
+			go this.findVal(contact.Ip, ch, key, k_hash)
+			probenum++
+		}
+
 	}
 	for probenum > 0 {
 		recvValue := <-ch
@@ -148,10 +156,11 @@ func (this *Node) IterativeFindValue(key string) (string, bool) {
 			if shortList.Len() != 0 {
 				this.store(shortList[0].Ip, key, recvValue.Val, this.RoutingTable.calculateExpire(shortList[0].Id), false)
 			}
-			fmt.Println("get ", recvValue.Val, " at ", recvValue.Header.Ip, " from ", this.RoutingTable.Ip)
+			//fmt.Println("get ", recvValue.Val, " at ", recvValue.Header.Ip, " from ", this.RoutingTable.Ip)
 			return recvValue.Val, true
 		}
 		shortList = append(shortList, recvValue.Header)
+		//fmt.Println("found ",recvValue.Closest," from ",recvValue.Header.Ip)
 		for _, contact := range recvValue.Closest { //todo:loose parallelism should limit connects?
 			if _, ok := seen[contact.Ip]; !ok {
 				seen[contact.Ip] = struct{}{}
@@ -163,7 +172,9 @@ func (this *Node) IterativeFindValue(key string) (string, bool) {
 	return "", false
 }
 func (this *Node) findVal(ip string, recv chan FindValueReturn, key string, key_hash *big.Int) {
+	//fmt.Println("send findval to ",ip)
 	if !this.ping(ip) {
+		this.RoutingTable.failNode(Contact{chord.HashString(ip), ip})
 		recv <- FindValueReturn{Contact{}, nil, ""}
 		return
 	}
@@ -172,12 +183,11 @@ func (this *Node) findVal(ip string, recv chan FindValueReturn, key string, key_
 		recv <- FindValueReturn{Contact{}, nil, ""}
 		return
 	}
-
+	defer client.Close()
 	var ret FindValueReturn
 	err := client.Call("Node.RPCFindValue",
 		FindValueRequest{Contact{this.RoutingTable.Id, this.RoutingTable.Ip},
 			key_hash, key}, &ret)
-	_ = client.Close()
 	if err != nil {
 		recv <- FindValueReturn{Contact{}, nil, ""}
 		return
@@ -188,17 +198,17 @@ func (this *Node) findVal(ip string, recv chan FindValueReturn, key string, key_
 func ping(header Contact, ip string) (bool, Contact) {
 	var success bool
 	for times := 0; times < 1; times++ { //todo:maybe we need to reduce retry times
-		ch := make(chan bool)
-		ch2 := make(chan Contact)
+		ch := make(chan bool, 1)
+		ch2 := make(chan Contact, 1)
 		go func() {
 			client, err := rpc.Dial("tcp", ip)
 			if err != nil {
 				ch <- false
 				return
 			} else {
+				defer client.Close()
 				var ret PingReturn
 				_ = client.Call("Node.RPCPing", header, &ret)
-				_ = client.Close()
 				if ret.Success {
 					ch <- true
 					ch2 <- ret.Header
@@ -214,9 +224,9 @@ func ping(header Contact, ip string) (bool, Contact) {
 				return true, <-ch2
 			} else {
 				fmt.Println("ping ", ip, " failed")
-				continue
+				return false, Contact{}
 			}
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(666 * time.Millisecond):
 			fmt.Println("ping ", ip, " time out")
 			continue
 		}
@@ -230,13 +240,13 @@ func (this *Node) store(ip string, key string, val string, expire time.Duration,
 		return false
 	}
 	var ret StoreReturn
+	defer client.Close()
 	err := client.Call("Node.RPCStore", StoreRequest{
 		Pair:      KVPair{key, val},
 		Header:    Contact{Ip: this.RoutingTable.Ip, Id: this.RoutingTable.Id},
 		Expire:    expire,
 		Replicate: replicate,
 	}, &ret)
-	_ = client.Close()
 	if err != nil {
 		fmt.Println(err)
 		return false
@@ -260,7 +270,7 @@ type PingReturn struct {
 }
 
 func (this *Node) RPCPing(header Contact, ret *PingReturn) error {
-	this.RoutingTable.update(&header)
+	go this.RoutingTable.update(&header)
 	ret.Success = this.Listening
 	ret.Header = Contact{this.RoutingTable.Id, this.RoutingTable.Ip}
 	return nil
@@ -284,6 +294,7 @@ type StoreReturn struct {
 //used for publish replicate and republish
 func (this *Node) IterativeStore(key string, val string, origin bool) {
 	k_closest := this.IterativeFindNode(key)
+	fmt.Println("store: get k closest list: ", k_closest)
 	if origin {
 		this.KvStorage.put(key, val, true, 0, false)
 		for _, contact := range k_closest {
@@ -315,7 +326,7 @@ type FindNodeReturn struct {
 
 func (this *Node) RPCFindNode(request FindNodeRequest, ret *FindNodeReturn) error {
 	this.RoutingTable.update(&request.Header)
-	ret.Closest = this.RoutingTable.getClosest(request.Id, k)
+	ret.Closest = this.RoutingTable.GetClosest(request.Id, K)
 	ret.Header = Contact{this.RoutingTable.Id, this.RoutingTable.Ip}
 
 	return nil
@@ -333,13 +344,16 @@ type FindValueReturn struct {
 }
 
 func (this *Node) RPCFindValue(request FindValueRequest, ret *FindValueReturn) error {
+	fmt.Println(this.RoutingTable.Ip, " receive find value")
 	this.RoutingTable.update(&request.Header)
 	val, ok := this.KvStorage.get(request.Key)
 	if ok {
-		//fmt.Println("get ",request.Key," at ",this.RoutingTable.Ip," from ",request.Header.Ip)
+		fmt.Println("get ", request.Key, " => ", val, " at ", this.RoutingTable.Ip, " from ", request.Header.Ip)
 		(*ret).Val = val
+		ret.Closest = nil
 	} else {
-		(*ret).Closest = this.RoutingTable.getClosest(request.HashId, k)
+		(*ret).Closest = this.RoutingTable.GetClosest(request.HashId, K)
+		ret.Val = ""
 	}
 	ret.Header = Contact{this.RoutingTable.Id, this.RoutingTable.Ip}
 	return nil
@@ -352,9 +366,9 @@ func (this *Node) RPCFindValue(request FindValueRequest, ret *FindValueReturn) e
 
 //func (this *Node)RPCDelete(request DeleteRequest,success *bool)error{
 //	this.RoutingTable.update(&request.Header)
-//	this.KvStorage.Mux.Lock()
+//	this.KvStorage.StoreMux.Lock()
 //	delete(this.KvStorage.V, request.key)
-//	this.KvStorage.Mux.Unlock()
+//	this.KvStorage.StoreMux.Unlock()
 //	*success=true
 //	return nil
 //}

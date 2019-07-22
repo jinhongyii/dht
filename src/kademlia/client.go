@@ -83,6 +83,7 @@ func (this *Client) Run(wg *sync.WaitGroup) {
 	go this.Server.Accept(this.listener)
 	this.Node_.Listening = true
 	this.Node_.RoutingTable.Ip = chord.GetLocalAddress() + this.Node_.RoutingTable.Ip
+	this.Node_.KvStorage.ip = this.Node_.RoutingTable.Ip //debug
 	this.Node_.RoutingTable.Id = chord.HashString(this.Node_.RoutingTable.Ip)
 }
 func (this *Client) Quit() {
@@ -94,9 +95,12 @@ func (this *Client) Dump() {
 	fmt.Println("ip:", this.Node_.RoutingTable.Ip)
 	for i := 1; i <= maxbucket; i++ {
 		if this.Node_.RoutingTable.buckets[i].Len() > 0 {
-			fmt.Print(this.Node_.RoutingTable.buckets[i].ToArray(), " ")
+			for tmp := this.Node_.RoutingTable.buckets[i].Front(); tmp != nil; tmp = tmp.Next() {
+				fmt.Print(tmp.Value.(Contact).Ip, " ")
+			}
+			fmt.Print(" | ")
 		}
 	}
 	fmt.Println()
-	fmt.Println(this.Node_.KvStorage)
+	fmt.Println(this.Node_.KvStorage.storageMap)
 }

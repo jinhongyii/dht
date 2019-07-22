@@ -1,6 +1,7 @@
 package kademlia
 
 import (
+	"fmt"
 	"math"
 	"math/big"
 	"time"
@@ -15,8 +16,9 @@ type RoutingTable struct {
 
 func (this *RoutingTable) update(header *Contact) {
 	bucketid := distance2(header.Id, this.Id).BitLen()
+	this.buckets[bucketid].mux.Lock()
 	this.buckets[bucketid].Insert(Contact{Ip: header.Ip, Id: header.Id})
-	if this.buckets[bucketid].Size() > k {
+	if this.buckets[bucketid].Size() > K {
 
 		if online, contact := ping(Contact{Ip: this.Ip, Id: this.Id}, this.buckets[bucketid].Front().Value.(Contact).Ip); online {
 			this.buckets[bucketid].UndoInsertion()
@@ -26,15 +28,25 @@ func (this *RoutingTable) update(header *Contact) {
 			this.buckets[bucketid].Victim(&deleted)
 		}
 	}
+	this.buckets[bucketid].mux.Unlock()
 }
-func (this *RoutingTable) getClosest(id *big.Int, requiredNum int) []Contact {
+func (this *RoutingTable) failNode(contact Contact) {
+	bucketid := distance2(contact.Id, this.Id).BitLen()
+	if this.buckets[bucketid].Exist(contact) {
+		this.buckets[bucketid].mux.Lock()
+		this.buckets[bucketid].Erase(contact)
+		this.buckets[bucketid].mux.Unlock()
+	}
+}
+func (this *RoutingTable) GetClosest(id *big.Int, requiredNum int) []Contact {
 	ret := make(Contacts, 0)
 
-	id_bits := distance2(id, this.Id).Bits()
-	totlen := maxbucket
+	dis := distance2(id, this.Id)
+	id_bits := fmt.Sprintf("%b", dis)
+	totlen := len(id_bits)
 	var filled [maxbucket + 1]bool
 	for i, bit := range id_bits {
-		if bit == 1 {
+		if bit == '1' {
 			if full := tryFill(&this.buckets[totlen-i], &ret, requiredNum); full {
 				return ret
 			}
@@ -78,7 +90,7 @@ func (this *RoutingTable) calculateExpire(id *big.Int) time.Duration {
 			sum++
 		}
 	}
-	return time.Duration(int64(float64(tExpire) * math.Exp(1-float64(sum)/float64(k)))) //这里没有按照xlattice上面的写，用的负指数相关
+	return time.Duration(int64(float64(tExpire) * math.Exp(1-float64(sum)/float64(K)))) //这里没有按照xlattice上面的写，用的负指数相关
 }
 func (this *RoutingTable) getbucketid(id *big.Int) int {
 	return distance2(id, this.Id).BitLen()
