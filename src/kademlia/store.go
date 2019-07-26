@@ -6,40 +6,65 @@ import (
 	"time"
 )
 
+type Set map[string]struct{}
+
+func (this *Set) Put(k string) {
+	(*this)[k] = struct{}{}
+}
+func (this Set) p() *Set {
+	return &this
+}
+func (this *Set) Exist(k string) bool {
+	_, ok := (*this)[k]
+	return ok
+}
+func (this *Set) Delete(k string) {
+	delete(*this, k)
+}
+func (this *Set) Len() int {
+	return len(*this)
+}
+
 type MemStore struct {
-	ip           string            //debug
-	storageMap   map[string]string //todo:change to multimap
+	ip           string //debug
+	storageMap   map[string]Set
 	StoreMux     sync.Mutex
-	expireMap    map[string]time.Time
+	expireMap    map[KVPair]time.Time
 	ReplicateMux sync.Mutex
 	RepublishMux sync.Mutex
-	republishMap map[string]time.Time
-	replicateMap map[string]time.Time
+	republishMap map[KVPair]time.Time
+	replicateMap map[KVPair]time.Time
 }
 
 //固定重置replicatemap
 func (this *MemStore) put(key string, val string, republish bool, expire time.Duration, replicate bool) {
 	//fmt.Println(this.ip," :put lock ")
 	this.StoreMux.Lock()
-	this.storageMap[key] = val
+	s, ok := this.storageMap[key]
+	if ok {
+		s.Put(val)
+	} else {
+		this.storageMap[key] = make(Set)
+		this.storageMap[key].p().Put(val)
+	}
 	//fmt.Println(this.ip," :put unlock")
 	this.StoreMux.Unlock()
+	pair := KVPair{Key: key, Val: val}
 	//把节点变成源
 	if republish {
-		this.republishMap[key] = time.Now().Add(tRepublish)
-		delete(this.expireMap, key)
-		delete(this.expireMap, key)
-	} else if _, ok := this.republishMap[key]; !ok { //本来不是个源
+		this.republishMap[pair] = time.Now().Add(tRepublish)
+		delete(this.expireMap, pair)
+	} else if _, ok := this.republishMap[pair]; !ok { //本来不是个源
 		if expire != 0 {
-			this.expireMap[key] = time.Now().Add(expire)
+			this.expireMap[pair] = time.Now().Add(expire)
 		}
 		if replicate {
-			this.replicateMap[key] = time.Now().Add(tReplicate)
+			this.replicateMap[pair] = time.Now().Add(tReplicate)
 		}
 	}
 
 }
-func (this *MemStore) get(key string) (string, bool) {
+func (this *MemStore) get(key string) (Set, bool) {
 	//fmt.Println(this.ip," :get lock")
 	this.StoreMux.Lock()
 	val, ok := this.storageMap[key]
@@ -48,7 +73,7 @@ func (this *MemStore) get(key string) (string, bool) {
 	if ok {
 		return val, true
 	} else {
-		return "", false
+		return nil, false
 	}
 }
 func (this *Node) expire() {
@@ -59,13 +84,13 @@ func (this *Node) expire() {
 	//fmt.Println(this.RoutingTable.Ip," :expire lock")
 	this.KvStorage.StoreMux.Lock()
 	//fmt.Println(this.RoutingTable.Ip," :expire lock got")
-	deleteList := make([]string, 0)
-	for key, t := range this.KvStorage.expireMap {
+	deleteList := make([]KVPair, 0)
+	for pair, t := range this.KvStorage.expireMap {
 		if time.Now().After(t) {
 			//delete(this.KvStorage.expireMap, key)
-			deleteList = append(deleteList, key)
-			delete(this.KvStorage.replicateMap, key)
-			delete(this.KvStorage.storageMap, key)
+			deleteList = append(deleteList, pair)
+			delete(this.KvStorage.replicateMap, pair)
+			this.KvStorage.storageMap[pair.Key].p().Delete(pair.Val)
 		}
 	}
 	for _, key := range deleteList {
@@ -81,10 +106,9 @@ func (this *Node) replicate() {
 	keysToReplicate := make([]KVPair, 0)
 	this.KvStorage.ReplicateMux.Lock()
 	//fmt.Println(this.RoutingTable.Ip," :replicate replicateMux got")
-	for key, t := range this.KvStorage.replicateMap {
+	for pair, t := range this.KvStorage.replicateMap {
 		if time.Now().After(t) {
-			val, _ := this.KvStorage.get(key)
-			keysToReplicate = append(keysToReplicate, KVPair{Key: key, Val: val})
+			keysToReplicate = append(keysToReplicate, KVPair{Key: pair.Key, Val: pair.Val})
 		}
 	}
 	this.KvStorage.ReplicateMux.Unlock()
@@ -98,10 +122,9 @@ func (this *Node) republish() {
 	KeysToRepublish := make([]KVPair, 0)
 	this.KvStorage.RepublishMux.Lock()
 	//fmt.Println(this.RoutingTable.Ip," :republish republishMux got")
-	for key, t := range this.KvStorage.republishMap {
+	for pair, t := range this.KvStorage.republishMap {
 		if time.Now().After(t) {
-			val, _ := this.KvStorage.get(key)
-			KeysToRepublish = append(KeysToRepublish, KVPair{Key: key, Val: val})
+			KeysToRepublish = append(KeysToRepublish, KVPair{Key: pair.Key, Val: pair.Val})
 		}
 	}
 	this.KvStorage.RepublishMux.Unlock()
@@ -111,10 +134,10 @@ func (this *Node) republish() {
 	}
 }
 func (this *MemStore) Init() {
-	this.storageMap = make(map[string]string)
-	this.expireMap = make(map[string]time.Time)
-	this.republishMap = make(map[string]time.Time)
-	this.replicateMap = make(map[string]time.Time)
+	this.storageMap = make(map[string]Set)
+	this.expireMap = make(map[KVPair]time.Time)
+	this.republishMap = make(map[KVPair]time.Time)
+	this.replicateMap = make(map[KVPair]time.Time)
 }
 func (this *Node) Expire() {
 	for this.Listening {

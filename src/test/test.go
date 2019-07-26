@@ -96,7 +96,7 @@ func main() {
 				fetchedVal, success = nodes[tmp].Get(k)
 				log.Fatal("error:can't find key ", k, " from node ", tmp)
 			}
-			if fetchedVal != v {
+			if !fetchedVal.Exist(v) {
 				log.Fatal("actual: ", fetchedVal, " expected: ", v)
 			}
 			keyList[cnt] = k
@@ -172,7 +172,7 @@ func main() {
 				log.Fatal("error:can't find key ", k, " from node ", tmp)
 
 			}
-			if fetchedVal != v {
+			if !fetchedVal.Exist(v) {
 				log.Fatal("actual: ", fetchedVal, " expected: ", v)
 			}
 			keyList[cnt] = k

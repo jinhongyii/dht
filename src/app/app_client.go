@@ -6,6 +6,8 @@ import (
 	"crypto/sha1"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"math/big"
 	"net/rpc"
 	"os"
@@ -74,13 +76,17 @@ func getBytesFromFile(filepath string) ([]byte, error) {
 	return total, nil
 }
 func hashfile(filePath string) (*big.Int, error) {
-	bytes, err := getBytesFromFile(filePath)
+	f, err := os.Open("file.txt")
 	if err != nil {
-		return nil, err
+		log.Fatal(err)
 	}
-	hasher := sha1.New()
-	hasher.Write(bytes)
-	return new(big.Int).SetBytes(hasher.Sum(nil)), nil
+	defer f.Close()
+
+	h := sha1.New()
+	if _, err := io.Copy(h, f); err != nil {
+		log.Fatal(err)
+	}
+	return new(big.Int).SetBytes(h.Sum(nil)), nil
 }
 
 func (this *AppClient) Share(filePath string) bool {

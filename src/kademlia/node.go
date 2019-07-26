@@ -114,7 +114,7 @@ func (this *Node) findNode(ip string, recv chan FindNodeReturn, target *big.Int)
 	}
 	recv <- ret
 }
-func (this *Node) IterativeFindValue(key string) (string, bool) {
+func (this *Node) IterativeFindValue(key string) (Set, bool) {
 	val, success := this.KvStorage.get(key)
 	if success {
 		return val, true
@@ -154,7 +154,10 @@ func (this *Node) IterativeFindValue(key string) (string, bool) {
 				return disi.Cmp(disj) < 0
 			})
 			if shortList.Len() != 0 {
-				this.store(shortList[0].Ip, key, recvValue.Val, this.RoutingTable.calculateExpire(shortList[0].Id), false)
+				for val, _ := range recvValue.Val {
+					this.store(shortList[0].Ip, key, val, this.RoutingTable.calculateExpire(shortList[0].Id), false)
+				}
+
 			}
 			//fmt.Println("get ", recvValue.Val, " at ", recvValue.Header.Ip, " from ", this.RoutingTable.Ip)
 			return recvValue.Val, true
@@ -169,18 +172,18 @@ func (this *Node) IterativeFindValue(key string) (string, bool) {
 			}
 		}
 	}
-	return "", false
+	return nil, false
 }
 func (this *Node) findVal(ip string, recv chan FindValueReturn, key string, key_hash *big.Int) {
 	//fmt.Println("send findval to ",ip)
 	if !this.ping(ip) {
 		this.RoutingTable.failNode(Contact{chord.HashString(ip), ip})
-		recv <- FindValueReturn{Contact{}, nil, ""}
+		recv <- FindValueReturn{Contact{}, nil, nil}
 		return
 	}
 	client, e := rpc.Dial("tcp", ip)
 	if e != nil {
-		recv <- FindValueReturn{Contact{}, nil, ""}
+		recv <- FindValueReturn{Contact{}, nil, nil}
 		return
 	}
 	defer client.Close()
@@ -189,7 +192,7 @@ func (this *Node) findVal(ip string, recv chan FindValueReturn, key string, key_
 		FindValueRequest{Contact{this.RoutingTable.Id, this.RoutingTable.Ip},
 			key_hash, key}, &ret)
 	if err != nil {
-		recv <- FindValueReturn{Contact{}, nil, ""}
+		recv <- FindValueReturn{Contact{}, nil, nil}
 		return
 	}
 	recv <- ret
@@ -302,7 +305,7 @@ func (this *Node) IterativeStore(key string, val string, origin bool) {
 		}
 	} else {
 		for _, contact := range k_closest {
-			this.store(contact.Ip, key, val, 0, true)
+			this.store(contact.Ip, key, val, 0, true) //todo:change expire time(发起者的expire time)
 		}
 	}
 }
@@ -340,7 +343,7 @@ type FindValueRequest struct {
 type FindValueReturn struct {
 	Header  Contact
 	Closest []Contact
-	Val     string
+	Val     Set
 }
 
 func (this *Node) RPCFindValue(request FindValueRequest, ret *FindValueReturn) error {
@@ -353,7 +356,7 @@ func (this *Node) RPCFindValue(request FindValueRequest, ret *FindValueReturn) e
 		ret.Closest = nil
 	} else {
 		(*ret).Closest = this.RoutingTable.GetClosest(request.HashId, K)
-		ret.Val = ""
+		ret.Val = nil
 	}
 	ret.Header = Contact{this.RoutingTable.Id, this.RoutingTable.Ip}
 	return nil

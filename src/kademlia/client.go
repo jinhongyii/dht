@@ -23,7 +23,7 @@ func (this *Client) Put(key string, val string) bool {
 	this.Node_.IterativeStore(key, val, true)
 	return true
 }
-func (this *Client) Get(key string) (string, bool) {
+func (this *Client) Get(key string) (Set, bool) {
 	return this.Node_.IterativeFindValue(key)
 }
 
@@ -103,4 +103,7 @@ func (this *Client) Dump() {
 	}
 	fmt.Println()
 	fmt.Println(this.Node_.KvStorage.storageMap)
+}
+func (this *Client) Ping(ip string) bool {
+	return this.Node_.ping(ip)
 }
