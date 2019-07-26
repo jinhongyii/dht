@@ -43,7 +43,7 @@
     type StoreRequest struct {
 	    Pair      KVPair
 	    Header    Contact
-	    Expire    time.Duration
+	    Expire    time.Time
 	    Replicate bool
     }
     
