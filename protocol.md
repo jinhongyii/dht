@@ -21,7 +21,7 @@
 
     magnet:?xt=urn:btih:<info-hash>&dn=<name>&tr=<tracker-url>
 
-???tr???????dht????
+这里的tr是指带领你加入dht的服务器
 
 ## Kademlia RPC Protocols
 
