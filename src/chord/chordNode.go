@@ -48,10 +48,10 @@ func (this *Node) Merge(kvpairs *map[string]string, success *bool) error {
 	this.KvStorage.Mux.Lock()
 	for k, v := range *kvpairs {
 		this.KvStorage.V[k] = v
-		length, err := this.File.WriteString("put " + k + " " + v + "\n")
-		if err != nil {
-			fmt.Println("actually write:", length, " ", err)
-		}
+		//length, err := this.File.WriteString("put " + k + " " + v + "\n")
+		//if err != nil {
+		//	fmt.Println("actually write:", length, " ", err)
+		//}
 	}
 	this.KvStorage.Mux.Unlock()
 	return nil
@@ -92,7 +92,7 @@ func (this *Node) getWorkingSuccessor() FingerType {
 		}
 	}
 	if i != 1 {
-		fmt.Println(this.Ip, " successor set to ", this.Successors[i].Ip, "(getworkingsuccessor)")
+		//fmt.Println(this.Ip, " successor set to ", this.Successors[i].Ip, "(getworkingsuccessor)")
 		client, err := rpc.Dial("tcp", this.Successors[i].Ip)
 		if err != nil {
 			this.sucMux.Unlock()
@@ -140,7 +140,7 @@ func (this *Node) stabilize() {
 
 	err = client.Call("Node.Notify", &FingerType{this.Ip, this.Id}, nil)
 	if err != nil {
-		fmt.Println(err, "(stabilize)")
+		//fmt.Println(err, "(stabilize)")
 	}
 	var suc_Successors [m + 1]FingerType
 	err = client.Call("Node.GetSuccessors", 0, &suc_Successors)
@@ -195,9 +195,9 @@ func (this *Node) ping(ip string) bool {
 func (this *Node) checkPredecessor() {
 	if this.Predecessor != nil {
 		if !this.ping(this.Predecessor.Ip) {
-			var tmp = this.Predecessor.Ip
+			//var tmp = this.Predecessor.Ip
 			this.Predecessor = nil
-			fmt.Println(this.Ip, " predecessor set to nil  prev_predecessor:", tmp)
+			//fmt.Println(this.Ip, " predecessor set to nil  prev_predecessor:", tmp)
 		}
 	}
 }
@@ -282,10 +282,10 @@ func (this *Node) CompleteMigrate(otherNode FingerType, lala *int) error {
 	}
 	for _, v := range deletion {
 		delete(this.KvStorage.V, v)
-		length, err := this.File.WriteString("delete " + v + "\n")
-		if err != nil {
-			fmt.Println("actually write:", length, " ", err)
-		}
+		//length, err := this.File.WriteString("delete " + v + "\n")
+		//if err != nil {
+		//	fmt.Println("actually write:", length, " ", err)
+		//}
 	}
 	this.KvStorage.Mux.Unlock()
 	return nil
@@ -356,11 +356,11 @@ func (this *Node) Put_(args *ChordKV, success *bool) error {
 	this.KvStorage.Mux.Lock()
 	this.KvStorage.V[args.Key] = args.Val
 	this.KvStorage.Mux.Unlock()
-	length, err := this.File.WriteString("put " + args.Key + " " + args.Val + "\n")
-
-	if err != nil {
-		fmt.Println("actually write:", length, " ", err)
-	}
+	//length, err := this.File.WriteString("put " + args.Key + " " + args.Val + "\n")
+	//
+	//if err != nil {
+	//	fmt.Println("actually write:", length, " ", err)
+	//}
 	fmt.Println(this.Ip + " put " + args.Key + " => " + args.Val)
 	return nil
 }
@@ -380,10 +380,10 @@ func (this *Node) Delete_(key *string, success *bool) error {
 	_, ok := this.KvStorage.V[*key]
 	delete(this.KvStorage.V, *key)
 	this.KvStorage.Mux.Unlock()
-	length, err := this.File.WriteString("delete " + *key + "\n")
-	if err != nil {
-		fmt.Println("actually write:", length, " ", err)
-	}
+	//length, err := this.File.WriteString("delete " + *key + "\n")
+	//if err != nil {
+	//	fmt.Println("actually write:", length, " ", err)
+	//}
 	fmt.Println(this.Ip + " delete " + *key)
 	*success = ok
 	return nil
@@ -451,10 +451,10 @@ func (this *Node) Append(kv ChordKV, success *bool) error {
 	this.KvStorage.Mux.Lock()
 	tmp := this.KvStorage.V[kv.Key]
 	this.KvStorage.V[kv.Key] = tmp + kv.Val
-	length, err := this.File.WriteString("append " + kv.Key + " " + kv.Val + "\n")
-	if err != nil {
-		fmt.Println("actually write:", length, " ", err)
-	}
+	//length, err := this.File.WriteString("append " + kv.Key + " " + kv.Val + "\n")
+	//if err != nil {
+	//	fmt.Println("actually write:", length, " ", err)
+	//}
 	this.KvStorage.Mux.Unlock()
 	*success = true
 	return nil
@@ -468,10 +468,10 @@ func (this *Node) Remove(kv ChordKV, success *bool) error {
 		return nil
 	} else {
 		removed := strings.ReplaceAll(tmp, kv.Val, "")
-		length, err := this.File.WriteString("remove " + kv.Key + " " + kv.Val + "\n")
-		if err != nil {
-			fmt.Println("actually write:", length, " ", err)
-		}
+		//length, err := this.File.WriteString("remove " + kv.Key + " " + kv.Val + "\n")
+		//if err != nil {
+		//	fmt.Println("actually write:", length, " ", err)
+		//}
 		this.KvStorage.V[kv.Key] = removed
 		this.KvStorage.Mux.Unlock()
 		*success = true

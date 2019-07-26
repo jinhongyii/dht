@@ -15,7 +15,7 @@ type Client struct {
 	Node_    Node
 	Server   *rpc.Server
 	wg       *sync.WaitGroup
-	listener net.Listener
+	Listener net.Listener
 }
 
 func (this *Client) Create() {
@@ -23,9 +23,9 @@ func (this *Client) Create() {
 	this.Node_.Successors[1].Ip = this.Node_.Ip
 	this.Node_.Successors[1].Id = this.Node_.Id
 	this.Node_.Predecessor = nil
-	path := strings.ReplaceAll(this.Node_.Ip, ":", "_") + ".backup"
-	this.Node_.File, _ = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
-	this.Node_.recover()
+	//path := strings.ReplaceAll(this.Node_.Ip, ":", "_") + ".backup"
+	//this.Node_.File, _ = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
+	//this.Node_.recover()
 	go this.Stabilize()
 	go this.Fix_fingers()
 	go this.CheckPredecessor()
@@ -65,41 +65,41 @@ func Exists(path string) bool {
 func (this *Client) Join(otherNode string) bool {
 	this.Node_.KvStorage.V = make(map[string]string)
 	this.Node_.Predecessor = nil
-	path := strings.ReplaceAll(this.Node_.Ip, ":", "_") + ".backup"
-	this.Node_.File, _ = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
-	this.Node_.recover()
+	//path := strings.ReplaceAll(this.Node_.Ip, ":", "_") + ".backup"
+	//this.Node_.File, _ = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
+	//this.Node_.recover()
 	client, e := rpc.Dial("tcp", otherNode)
 	if e != nil {
 		return false
 	}
 	err := client.Call("Node.FindSuccessor", &FindRequest{*this.Node_.Id, 0}, &this.Node_.Successors[1])
 	if err != nil {
-		return false
+		return this.Join(otherNode)
 	}
 	client.Close()
 	client, e = rpc.Dial("tcp", this.Node_.getWorkingSuccessor().Ip)
 	if e != nil {
-		return false
+		return this.Join(otherNode)
 	}
 	var receivedMap map[string]string
 	var p FingerType
 	err = client.Call("Node.GetKeyValMap", 0, &receivedMap)
 	if err != nil {
-		return false
+		return this.Join(otherNode)
 	}
 	err = client.Call("Node.GetPredecessor", 0, &p)
 	if err != nil {
-		return false
+		return this.Join(otherNode)
 	}
 	this.Node_.KvStorage.Mux.Lock()
 	for k, v := range receivedMap {
 		var k_hash = HashString(k)
 		if between(p.Id, k_hash, this.Node_.Id, true) {
 			this.Node_.KvStorage.V[k] = v
-			length, err := this.Node_.File.WriteString("put " + k + " " + v + "\n")
-			if err != nil {
-				fmt.Println("actually write:", length, " ", err)
-			}
+			//length, err := this.Node_.File.WriteString("put " + k + " " + v + "\n")
+			//if err != nil {
+			//	fmt.Println("actually write:", length, " ", err)
+			//}
 		}
 	}
 	this.Node_.KvStorage.Mux.Unlock()
@@ -108,7 +108,7 @@ func (this *Client) Join(otherNode string) bool {
 	err = client.Call("Node.Notify", &FingerType{this.Node_.Ip, this.Node_.Id}, nil)
 	if err != nil {
 		fmt.Println(err, "(join)")
-		return false
+		return this.Join(otherNode)
 	}
 	client.Close()
 	go this.Stabilize()
@@ -137,9 +137,9 @@ func (this *Client) Put(key string, val string) bool {
 	return err == nil
 }
 func (this *Client) SafeGet(key string) (string, bool) {
-	val1, success1 := this.Get(key + "1")
-	val2, success2 := this.Get(key + "2")
-	val3, success3 := this.Get(key + "3")
+	success1, val1 := this.Get(key + "1")
+	success2, val2 := this.Get(key + "2")
+	success3, val3 := this.Get(key + "3")
 	var val string
 	if success1 {
 		val = val1
@@ -164,7 +164,7 @@ func (this *Client) SafeGet(key string) (string, bool) {
 	}
 	return "", false
 }
-func (this *Client) Get(key string) (string, bool) {
+func (this *Client) Get(key string) (bool, string) {
 	var val string
 	var maxrequest = 3
 	var success = false
@@ -183,7 +183,7 @@ func (this *Client) Get(key string) (string, bool) {
 		}
 	}
 
-	return val, success
+	return success, val
 }
 func (this *Client) SafeDel(key string) bool {
 	ok1 := this.Del(key + "1")
@@ -233,13 +233,13 @@ func (this *Client) Quit() {
 		log.Fatal("dialing:", err)
 	}
 	err = client.Call("Node.Merge", &this.Node_.KvStorage.V, nil) //todo:
-	client.Close()
-	this.wg.Done()
+	_ = client.Close()
+	//this.wg.Done()
 	this.Node_.Listening = false
-	this.Node_.clearbackup()
-	_ = this.Node_.File.Close()
+	//this.Node_.clearbackup()
+	//_ = this.Node_.File.Close()
 	//time.Sleep(2 * time.Second)
-	err = this.listener.Close()
+	err = this.Listener.Close()
 	if err != nil {
 		println(err)
 	}
@@ -248,18 +248,18 @@ func (this *Client) ForceQuit() {
 	this.wg.Done()
 	this.Node_.Listening = false
 	_ = this.Node_.File.Close()
-	_ = this.listener.Close()
+	_ = this.Listener.Close()
 
 }
 func (this *Client) Rejoin(ip string) bool {
 	this.wg.Add(1)
 	var e error
-	this.listener.Accept()
-	this.listener, e = net.Listen("tcp", this.Node_.Ip)
+	this.Listener.Accept()
+	this.Listener, e = net.Listen("tcp", this.Node_.Ip)
 	if e != nil {
 		fmt.Println(e)
 	}
-	go this.Server.Accept(this.listener)
+	go this.Server.Accept(this.Listener)
 	this.Node_.Listening = true
 	this.Node_.Ip = GetLocalAddress() + this.Node_.Ip
 	this.Node_.Id = HashString(this.Node_.Ip)
@@ -318,18 +318,7 @@ func (this *Client) Rejoin(ip string) bool {
 func (this *Client) Ping(addr string) bool {
 	return this.Node_.ping(addr)
 }
-func (this *Client) Run(wg *sync.WaitGroup) {
-	this.wg = wg
-	wg.Add(1)
-	var e error
-	this.listener, e = net.Listen("tcp", this.Node_.Ip)
-	if e != nil {
-		fmt.Println(e)
-	}
-	go this.Server.Accept(this.listener)
-	this.Node_.Listening = true
-	this.Node_.Ip = GetLocalAddress() + this.Node_.Ip
-	this.Node_.Id = HashString(this.Node_.Ip)
+func (this *Client) Run() {
 }
 func (this *Client) SafeAppend(key string, appendPart string) bool {
 	ok1 := this.AppendTo(key+"1", appendPart)
