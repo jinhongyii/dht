@@ -155,7 +155,7 @@ func (this *Node) IterativeFindValue(key string) (Set, bool) {
 			})
 			if shortList.Len() != 0 {
 				for val, _ := range recvValue.Val {
-					this.store(shortList[0].Ip, key, val, this.RoutingTable.calculateExpire(shortList[0].Id), false)
+					this.store(shortList[0].Ip, key, val, time.Now().Add(this.RoutingTable.calculateExpire(shortList[0].Id)), false)
 				}
 
 			}
@@ -236,7 +236,7 @@ func ping(header Contact, ip string) (bool, Contact) {
 	}
 	return false, Contact{}
 }
-func (this *Node) store(ip string, key string, val string, expire time.Duration, replicate bool) bool {
+func (this *Node) store(ip string, key string, val string, expire time.Time, replicate bool) bool {
 	client, e := rpc.Dial("tcp", ip)
 	if e != nil {
 		fmt.Println(e)
@@ -286,7 +286,7 @@ type KVPair struct {
 type StoreRequest struct {
 	Pair      KVPair
 	Header    Contact
-	Expire    time.Duration
+	Expire    time.Time
 	Replicate bool
 }
 type StoreReturn struct {
@@ -295,17 +295,17 @@ type StoreReturn struct {
 }
 
 //used for publish replicate and republish
-func (this *Node) IterativeStore(key string, val string, origin bool) {
+func (this *Node) IterativeStore(key string, val string, origin bool, expire time.Time) {
 	k_closest := this.IterativeFindNode(key)
 	fmt.Println("store: get k closest list: ", k_closest)
 	if origin {
-		this.KvStorage.put(key, val, true, 0, false)
+		this.KvStorage.put(key, val, true, time.Now(), false)
 		for _, contact := range k_closest {
-			this.store(contact.Ip, key, val, tExpire, true)
+			this.store(contact.Ip, key, val, time.Now().Add(tExpire), true)
 		}
 	} else {
 		for _, contact := range k_closest {
-			this.store(contact.Ip, key, val, 0, true) //todo:change expire time(发起者的expire time)
+			this.store(contact.Ip, key, val, expire, true)
 		}
 	}
 }

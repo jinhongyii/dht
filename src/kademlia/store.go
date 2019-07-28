@@ -37,7 +37,7 @@ type MemStore struct {
 }
 
 //固定重置replicatemap
-func (this *MemStore) put(key string, val string, republish bool, expire time.Duration, replicate bool) {
+func (this *MemStore) put(key string, val string, republish bool, expire time.Time, replicate bool) {
 	//fmt.Println(this.ip," :put lock ")
 	this.StoreMux.Lock()
 	s, ok := this.storageMap[key]
@@ -55,9 +55,7 @@ func (this *MemStore) put(key string, val string, republish bool, expire time.Du
 		this.republishMap[pair] = time.Now().Add(tRepublish)
 		delete(this.expireMap, pair)
 	} else if _, ok := this.republishMap[pair]; !ok { //本来不是个源
-		if expire != 0 {
-			this.expireMap[pair] = time.Now().Add(expire)
-		}
+
 		if replicate {
 			this.replicateMap[pair] = time.Now().Add(tReplicate)
 		}
@@ -115,7 +113,7 @@ func (this *Node) replicate() {
 	//fmt.Println(this.RoutingTable.Ip," :replicate replicateMux unlock")
 
 	for _, pair := range keysToReplicate {
-		this.IterativeStore(pair.Key, pair.Val, false)
+		this.IterativeStore(pair.Key, pair.Val, false, this.KvStorage.expireMap[pair])
 	}
 }
 func (this *Node) republish() {
@@ -130,7 +128,7 @@ func (this *Node) republish() {
 	this.KvStorage.RepublishMux.Unlock()
 	//fmt.Println(this.RoutingTable.Ip," :republish republishMux unlock")
 	for _, pair := range KeysToRepublish {
-		this.IterativeStore(pair.Key, pair.Val, true)
+		this.IterativeStore(pair.Key, pair.Val, true, this.KvStorage.expireMap[pair])
 	}
 }
 func (this *MemStore) Init() {
