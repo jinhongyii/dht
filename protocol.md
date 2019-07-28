@@ -83,3 +83,18 @@
     RPCFindValue(FindValueRequest) -> (FindValueReturn)
 
 The name of the type which supports RPC method: **Node**
+## torrent client protocol
+the name of rpc server is Peer
+
+    type TorrentRequest struct {
+        infohash string
+        index    int
+        length   int
+    }
+    
+    type IntSet map[int]struct{}
+    
+    GetTorrentFile(string)-> []byte
+    GetPieceStatus(string)-> IntSet
+    GetPiece(TorrentRequest)->[]byte
+    
