@@ -31,8 +31,8 @@
     }
     
     type PingReturn struct {
-	    Success bool
-	    Header  Contact
+	Success bool
+	Header  Contact
     }
     
     type KVPair struct {
@@ -77,7 +77,7 @@
     }
     
     
-    RPCPing(Contact) -> Pingreturn
+    RPCPing(Contact) -> PingReturn
     RPCStore(StoreRequest) -> StoreReturn
     RPCFindNode(FindNodeRequest) -> (FindNodeReturn)
     RPCFindValue(FindValueRequest) -> (FindValueReturn)
