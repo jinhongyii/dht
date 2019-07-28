@@ -112,12 +112,13 @@ func (this *Client) GetFile(magnetLink string) bool {
 		torrentGot = true
 		break
 	}
+	this.Node.Put(magnetlinkinfo.infohash, this.Node.Node_.RoutingTable.Ip)
 	if !torrentGot {
 		fmt.Println("torrent file not got")
 		return false
 	}
 	torrentinfo := processTorrentFile(torrentFile)
-	availablePieces := make([]intSet, availableServers.Len())
+	availablePieces := make([]IntSet, availableServers.Len())
 	cnt := 0
 	type stat struct {
 		servers []string
@@ -150,11 +151,61 @@ func (this *Client) GetFile(magnetLink string) bool {
 	sort.Slice(&pieceOwnStat, func(i, j int) bool {
 		return len(pieceOwnStat[i].servers) < len(pieceOwnStat[j].servers)
 	})
+	ch := make(chan FilePiece)
 	for _, i := range pieceOwnStat {
-		client, e := rpc.Dial("tcp", i.servers[rand.Intn(len(i.servers))])
-		if e != nil {
-
+		var randServer int
+		for {
+			randServer = rand.Intn(len(i.servers))
+			if this.Node.Ping(i.servers[randServer]) {
+				break
+			} else {
+				i.servers = append(i.servers[:randServer], i.servers[randServer+1:]...)
+			}
 		}
+		go this.getPieceFromRemote(magnetlinkinfo.infohash, i.index, i.servers[randServer], torrentinfo["piece length"].(int), ch)
 	}
+	pieces := make([]FilePiece, 0)
+	this.peer.downloadedFile[magnetlinkinfo.infohash] = &pieces
+	for i := 0; i < len(pieceOwnStat); i++ {
+		pieceGot := <-ch
+		pieces = append(pieces, pieceGot)
+	}
+	sort.Slice(&pieces, func(i, j int) bool {
+		return pieces[i].index < pieces[j].index
+	})
+	file, _ := os.Create(torrentinfo["name"].(string))
+	for i := 0; i < len(pieces); i++ {
+		file.Write(pieces[i].content)
+	}
+	file.Close()
+	this.peer.addPath(magnetlinkinfo.infohash, torrentinfo["name"].(string), magnetlinkinfo.fileName+".torrent", false, torrentinfo["piece length"].(int))
+	delete(this.peer.downloadingStatus, magnetlinkinfo.infohash)
+	delete(this.peer.downloadedFile, magnetlinkinfo.infohash)
+	return true
+}
 
+type FilePiece struct {
+	index   int
+	content []byte
+}
+
+func (this *Client) getPieceFromRemote(infohash string, pieceno int, ip string, length int, recv chan FilePiece) {
+	client, e := rpc.Dial("tcp", ip)
+	if e != nil {
+		fmt.Println("get piece ", pieceno, " from ", ip, " failed")
+		return
+	}
+	var content = make([]byte, 0)
+	err := client.Call("Peer.GetPiece", TorrentRequest{
+		infohash: infohash,
+		index:    pieceno,
+		length:   length,
+	}, &content)
+	defer client.Close()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	recv <- FilePiece{pieceno, content}
+	this.peer.downloadingStatus[infohash][pieceno] = struct{}{}
 }

@@ -20,7 +20,7 @@ type Client struct {
 }
 
 func (this *Client) Put(key string, val string) bool {
-	this.Node_.IterativeStore(key, val, true)
+	this.Node_.IterativeStore(key, val, true, time.Now())
 	return true
 }
 func (this *Client) Get(key string) (Set, bool) {

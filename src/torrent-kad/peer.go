@@ -7,16 +7,19 @@ import (
 	"os"
 )
 
-type intSet map[int]struct{}
+type IntSet map[int]struct{}
 
 type Peer struct {
-	infoHashMap       map[string]basicFileInfo
-	downloadingStatus map[string]intSet
+	infoHashMap       map[string]basicFileInfo //todo:save a fstream in the map
+	downloadingStatus map[string]IntSet
+	downloadedFile    map[string]*[]FilePiece
 	server            *rpc.Server
 }
 
 func (this *Peer) Init() {
 	this.server = rpc.NewServer()
+	this.downloadingStatus = make(map[string]IntSet)
+	this.downloadedFile = make(map[string]*[]FilePiece)
 }
 
 type basicFileInfo struct {
@@ -36,7 +39,7 @@ func (this *Peer) GetTorrentFile(infoHash string, torrent *[]byte) error {
 	}
 	return nil
 }
-func (this *Peer) GetPieceStatus(infohash string, availablePiece *intSet) error {
+func (this *Peer) GetPieceStatus(infohash string, availablePiece *IntSet) error {
 	_, ok := this.infoHashMap[infohash]
 	if !ok {
 		return errors.New("no such file")
@@ -51,13 +54,13 @@ func (this *Peer) GetPieceStatus(infohash string, availablePiece *intSet) error 
 }
 
 //todo:change network
-type Request struct {
+type TorrentRequest struct {
 	infohash string
 	index    int
 	length   int
 }
 
-func (this *Peer) GetPiece(request Request, content *[]byte) error {
+func (this *Peer) GetPiece(request TorrentRequest, content *[]byte) error {
 	fileinfo := this.infoHashMap[request.infohash]
 	*content = make([]byte, request.length)
 	if !fileinfo.isDir {

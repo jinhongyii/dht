@@ -41,10 +41,10 @@
     }
     
     type StoreRequest struct {
-	Pair      KVPair
-	Header    Contact
-	Expire    time.Duration
-	Replicate bool
+	    Pair      KVPair
+	    Header    Contact
+	    Expire    time.Time
+	    Replicate bool
     }
     
     type StoreReturn struct {
@@ -83,3 +83,18 @@
     RPCFindValue(FindValueRequest) -> (FindValueReturn)
 
 The name of the type which supports RPC method: **Node**
+## torrent client protocol
+the name of rpc server is Peer
+
+    type TorrentRequest struct {
+        infohash string
+        index    int
+        length   int
+    }
+    
+    type IntSet map[int]struct{}
+    
+    GetTorrentFile(string)-> []byte
+    GetPieceStatus(string)-> IntSet
+    GetPiece(TorrentRequest)->[]byte
+    

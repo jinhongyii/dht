@@ -7,7 +7,6 @@ import (
 	"log"
 	"math/rand"
 	"strconv"
-	"sync"
 	"time"
 )
 
@@ -40,7 +39,7 @@ func KVTest() {
 	cnt := 0
 	for k, v := range MAP {
 		p := rand.Int() % id
-		res, _ := (node[p]).Get(k)
+		_, res := (node[p]).Get(k)
 		if res != v {
 			log.Fatalln("Get incorrect when get key", k)
 		}
@@ -78,10 +77,8 @@ func main() {
 
 	id = 0
 
-	wg := new(sync.WaitGroup)
-
 	node[id] = common.NewNode(2000)
-	(node[id]).Run(wg)
+	(node[id]).Run()
 	(node[id]).Create()
 	id++
 
@@ -91,7 +88,7 @@ func main() {
 		fmt.Println("Start to test join")
 		for i := 0; i < 30; i++ {
 			node[id] = common.NewNode(id + 2000)
-			(node[id]).Run(wg)
+			(node[id]).Run()
 			(node[id]).Join(localAddr + ":" + strconv.Itoa(2000+rand.Int()%id))
 			id++
 
