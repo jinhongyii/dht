@@ -2,18 +2,16 @@ package kademlia
 
 //todo:add data validator
 import (
-	"chord"
+	"dht/src/chord"
 	"fmt"
 	"math/big"
 	"net"
 	"net/rpc"
-	"sync"
 	"time"
 )
 
 //用的时候应该让val是存k-v的服务器地址
 type Client struct {
-	wg       *sync.WaitGroup
 	listener net.Listener
 	Node_    Node
 	Server   *rpc.Server
@@ -70,9 +68,8 @@ func (this *Client) Join(ip string) bool {
 	go this.Node_.Replicate()
 	return true
 }
-func (this *Client) Run(wg *sync.WaitGroup) {
-	this.wg = wg
-	wg.Add(1)
+func (this *Client) Run() {
+
 	var e error
 	this.listener, e = net.Listen("tcp", this.Node_.RoutingTable.Ip)
 	fmt.Println("listen at ", this.Node_.RoutingTable.Ip)
@@ -87,7 +84,6 @@ func (this *Client) Run(wg *sync.WaitGroup) {
 	this.Node_.RoutingTable.Id = chord.HashString(this.Node_.RoutingTable.Ip)
 }
 func (this *Client) Quit() {
-	this.wg.Done()
 	this.Node_.Listening = false
 	this.listener.Close()
 }

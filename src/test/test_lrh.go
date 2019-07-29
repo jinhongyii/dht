@@ -19,7 +19,7 @@ var PUT int
 
 func KVTest() {
 	fmt.Println("Sleep 5 seconds")
-	time.Sleep(10 * second)
+	time.Sleep(5 * second)
 
 	// insert
 	fmt.Println("Start to test insert")

@@ -1,7 +1,7 @@
 package common
 
 import (
-	"dht/src/chord"
+	"chord"
 	"fmt"
 	"net"
 	"net/rpc"

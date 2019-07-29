@@ -12,14 +12,15 @@ type IntSet map[int]struct{}
 type Peer struct {
 	infoHashMap       map[string]basicFileInfo //todo:save a fstream in the map
 	downloadingStatus map[string]IntSet
-	downloadedFile    map[string]*[]FilePiece
+	downloadedPiece   map[string]map[int][]byte
 	server            *rpc.Server
 }
 
 func (this *Peer) Init() {
 	this.server = rpc.NewServer()
 	this.downloadingStatus = make(map[string]IntSet)
-	this.downloadedFile = make(map[string]*[]FilePiece)
+	this.downloadedPiece = make(map[string]map[int][]byte)
+	this.infoHashMap = make(map[string]basicFileInfo)
 }
 
 type basicFileInfo struct {
@@ -61,14 +62,18 @@ type TorrentRequest struct {
 }
 
 func (this *Peer) GetPiece(request TorrentRequest, content *[]byte) error {
-	fileinfo := this.infoHashMap[request.infohash]
-	*content = make([]byte, request.length)
-	if !fileinfo.isDir {
-		file, err := os.Open(fileinfo.filePath)
-		if err != nil {
-			return err
+	if piece, ok := this.downloadedPiece[request.infohash]; ok {
+		*content = piece[request.index]
+	} else {
+		fileinfo := this.infoHashMap[request.infohash]
+		*content = make([]byte, request.length)
+		if !fileinfo.isDir {
+			file, err := os.Open(fileinfo.filePath)
+			if err != nil {
+				return err
+			}
+			file.ReadAt(*content, int64(request.length*request.index))
 		}
-		file.ReadAt(*content, int64(request.length*request.index))
 	}
 	return nil
 }

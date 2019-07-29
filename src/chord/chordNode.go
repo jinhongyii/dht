@@ -33,15 +33,16 @@ type FingerType struct {
 	Id *big.Int
 }
 type Node struct {
-	Id          *big.Int
-	Ip          string
-	KvStorage   Counter
-	sucMux      sync.RWMutex
-	Successors  [m + 1]FingerType
-	Finger      [m + 1]FingerType
-	Predecessor *FingerType
-	Listening   bool
-	File        *os.File
+	Id                *big.Int
+	Ip                string
+	KvStorage         Counter
+	additionalStorage Counter
+	sucMux            sync.RWMutex
+	Successors        [m + 1]FingerType
+	Finger            [m + 1]FingerType
+	Predecessor       *FingerType
+	Listening         bool
+	File              *os.File
 }
 
 func (this *Node) Merge(kvpairs *map[string]string, success *bool) error {
@@ -197,6 +198,20 @@ func (this *Node) checkPredecessor() {
 		if !this.ping(this.Predecessor.Ip) {
 			//var tmp = this.Predecessor.Ip
 			this.Predecessor = nil
+			this.additionalStorage.Mux.Lock()
+			this.KvStorage.Mux.Lock()
+			for k, v := range this.additionalStorage.V {
+				this.KvStorage.V[k] = v
+			}
+			client, err := rpc.Dial("tcp", this.getWorkingSuccessor().Ip)
+			if err != nil {
+				fmt.Println(err)
+			}
+			var success bool
+			client.Call("Node.AdditionalPutMap", this.additionalStorage.V, &success)
+			client.Close()
+			this.KvStorage.Mux.Unlock()
+			this.additionalStorage.Mux.Unlock()
 			//fmt.Println(this.Ip, " predecessor set to nil  prev_predecessor:", tmp)
 		}
 	}
@@ -295,6 +310,17 @@ func (this *Node) Notify(otherNode FingerType, lalala *int) error {
 	if this.Predecessor == nil || between(this.Predecessor.Id, otherNode.Id, this.Id, false) {
 		this.Predecessor = new(FingerType)
 		*this.Predecessor = otherNode
+		client, err := rpc.Dial("tcp", otherNode.Ip)
+		if err != nil {
+			fmt.Println(err)
+		} else {
+			useless := 0
+			otherMap := make(map[string]string)
+			client.Call("Node.GetKeyValMap", &useless, &otherMap)
+			client.Close()
+			this.additionalStorage.V = otherMap
+		}
+
 		fmt.Println(this.Ip, " predecessor set to ", otherNode.Ip)
 		return nil
 	} else if this.Predecessor.Ip == otherNode.Ip {
@@ -353,6 +379,13 @@ func (this *Node) closest_preceding_node(id *big.Int) FingerType {
 	return this.Successors[1]
 }
 func (this *Node) Put_(args *ChordKV, success *bool) error {
+	client, err := rpc.Dial("tcp", this.getWorkingSuccessor().Ip)
+	if err != nil {
+		return err
+	} else {
+		client.Call("Node.AdditionalPut", args, success)
+		client.Close()
+	}
 	this.KvStorage.Mux.Lock()
 	this.KvStorage.V[args.Key] = args.Val
 	this.KvStorage.Mux.Unlock()
@@ -376,6 +409,13 @@ func (this *Node) Get_(key *string, val *string) error {
 	return nil
 }
 func (this *Node) Delete_(key *string, success *bool) error {
+	client, err := rpc.Dial("tcp", this.getWorkingSuccessor().Ip)
+	if err != nil {
+		return err
+	} else {
+		client.Call("Node.AdditionalDel", key, success)
+		client.Close()
+	}
 	this.KvStorage.Mux.Lock()
 	_, ok := this.KvStorage.V[*key]
 	delete(this.KvStorage.V, *key)
@@ -478,4 +518,25 @@ func (this *Node) Remove(kv ChordKV, success *bool) error {
 		return nil
 	}
 
+}
+
+func (this *Node) AdditionalPut(key *ChordKV, success *bool) error {
+	this.additionalStorage.Mux.Lock()
+	this.additionalStorage.V[key.Key] = key.Val
+	this.additionalStorage.Mux.Unlock()
+	return nil
+}
+func (this *Node) AdditionalDel(key string, success *bool) error {
+	this.additionalStorage.Mux.Lock()
+	delete(this.additionalStorage.V, key)
+	this.additionalStorage.Mux.Unlock()
+	return nil
+}
+func (this *Node) AdditionalPutMap(kvMap map[string]string, success *bool) error {
+	this.additionalStorage.Mux.Lock()
+	for k, v := range kvMap {
+		this.additionalStorage.V[k] = v
+	}
+	this.additionalStorage.Mux.Unlock()
+	return nil
 }

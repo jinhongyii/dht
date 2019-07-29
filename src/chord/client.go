@@ -2,7 +2,6 @@ package chord
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"net/rpc"
 	"os"
@@ -20,6 +19,7 @@ type Client struct {
 
 func (this *Client) Create() {
 	this.Node_.KvStorage.V = make(map[string]string)
+	this.Node_.additionalStorage.V = make(map[string]string)
 	this.Node_.Successors[1].Ip = this.Node_.Ip
 	this.Node_.Successors[1].Id = this.Node_.Id
 	this.Node_.Predecessor = nil
@@ -64,6 +64,7 @@ func Exists(path string) bool {
 }
 func (this *Client) Join(otherNode string) bool {
 	this.Node_.KvStorage.V = make(map[string]string)
+	this.Node_.additionalStorage.V = make(map[string]string)
 	this.Node_.Predecessor = nil
 	//path := strings.ReplaceAll(this.Node_.Ip, ":", "_") + ".backup"
 	//this.Node_.File, _ = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
@@ -106,6 +107,7 @@ func (this *Client) Join(otherNode string) bool {
 
 	err = client.Call("Node.CompleteMigrate", &FingerType{this.Node_.Ip, this.Node_.Id}, nil)
 	err = client.Call("Node.Notify", &FingerType{this.Node_.Ip, this.Node_.Id}, nil)
+
 	if err != nil {
 		fmt.Println(err, "(join)")
 		return this.Join(otherNode)
@@ -228,24 +230,25 @@ func (this *Client) Dump() {
 
 }
 func (this *Client) Quit() {
-	client, err := rpc.Dial("tcp", this.Node_.getWorkingSuccessor().Ip)
-	if err != nil {
-		log.Fatal("dialing:", err)
-	}
-	err = client.Call("Node.Merge", &this.Node_.KvStorage.V, nil) //todo:
-	_ = client.Close()
-	//this.wg.Done()
-	this.Node_.Listening = false
-	//this.Node_.clearbackup()
-	//_ = this.Node_.File.Close()
-	//time.Sleep(2 * time.Second)
-	err = this.Listener.Close()
-	if err != nil {
-		println(err)
-	}
+	//client, err := rpc.Dial("tcp", this.Node_.getWorkingSuccessor().Ip)
+	//if err != nil {
+	//	log.Fatal("dialing:", err)
+	//}
+	//err = client.Call("Node.Merge", &this.Node_.KvStorage.V, nil) //todo:
+	//_ = client.Close()
+	////this.wg.Done()
+	//this.Node_.Listening = false
+	////this.Node_.clearbackup()
+	////_ = this.Node_.File.Close()
+	////time.Sleep(2 * time.Second)
+	//err = this.Listener.Close()
+	//if err != nil {
+	//	println(err)
+	//}
+	this.ForceQuit()
 }
 func (this *Client) ForceQuit() {
-	this.wg.Done()
+	//this.wg.Done()
 	this.Node_.Listening = false
 	_ = this.Node_.File.Close()
 	_ = this.Listener.Close()
