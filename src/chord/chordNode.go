@@ -43,6 +43,8 @@ type Node struct {
 	Predecessor       *FingerType
 	Listening         bool
 	File              *os.File
+	stabilizeMux      sync.Mutex
+	fixMux            sync.Mutex
 }
 
 func (this *Node) Merge(kvpairs *map[string]string, success *bool) error {
@@ -93,6 +95,10 @@ func (this *Node) getWorkingSuccessor() FingerType {
 		}
 	}
 	if i != 1 {
+		if i == m+1 {
+			this.sucMux.Unlock()
+			return FingerType{}
+		}
 		//fmt.Println(this.Ip, " successor set to ", this.Successors[i].Ip, "(getworkingsuccessor)")
 		client, err := rpc.Dial("tcp", this.Successors[i].Ip)
 		if err != nil {
@@ -116,6 +122,9 @@ func (this *Node) getWorkingSuccessor() FingerType {
 
 func (this *Node) stabilize() {
 	suc := this.getWorkingSuccessor()
+	if suc.Id == nil {
+		return
+	}
 	client, e := rpc.Dial("tcp", suc.Ip)
 	if e != nil {
 		//log.Fatal("dialing:", e)
@@ -206,12 +215,14 @@ func (this *Node) checkPredecessor() {
 			client, err := rpc.Dial("tcp", this.getWorkingSuccessor().Ip)
 			if err != nil {
 				fmt.Println(err)
+				return
 			}
 			var success bool
-			client.Call("Node.AdditionalPutMap", this.additionalStorage.V, &success)
-			client.Close()
 			this.KvStorage.Mux.Unlock()
 			this.additionalStorage.Mux.Unlock()
+			client.Call("Node.AdditionalPutMap", this.additionalStorage.V, &success)
+			client.Close()
+
 			//fmt.Println(this.Ip, " predecessor set to nil  prev_predecessor:", tmp)
 		}
 	}
@@ -307,6 +318,7 @@ func (this *Node) CompleteMigrate(otherNode FingerType, lala *int) error {
 }
 
 func (this *Node) Notify(otherNode FingerType, lalala *int) error {
+
 	if this.Predecessor == nil || between(this.Predecessor.Id, otherNode.Id, this.Id, false) {
 		this.Predecessor = new(FingerType)
 		*this.Predecessor = otherNode
@@ -341,6 +353,10 @@ func (this *Node) FindSuccessor(request *FindRequest, successor *FingerType) err
 	}
 	var suc = new(FingerType)
 	*suc = this.getWorkingSuccessor()
+	if suc.Id == nil {
+		*successor = *suc
+		return errors.New("network fail")
+	}
 	if suc.Id.Cmp(this.Id) == 0 || request.Id.Cmp(this.Id) == 0 {
 		*successor = *suc
 	} else if between(this.Id, &request.Id, suc.Id, true) {
@@ -538,5 +554,15 @@ func (this *Node) AdditionalPutMap(kvMap map[string]string, success *bool) error
 		this.additionalStorage.V[k] = v
 	}
 	this.additionalStorage.Mux.Unlock()
+	return nil
+}
+func (this *Node) QuickStabilize(a int, b *int) error {
+	this.stabilizeMux.Lock()
+	this.stabilize()
+	this.stabilizeMux.Unlock()
+	this.fixMux.Lock()
+	tmp := 1
+	this.fix_fingers(&tmp)
+	this.fixMux.Unlock()
 	return nil
 }
