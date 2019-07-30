@@ -74,7 +74,7 @@ func tryFill(replacer *LRUReplacer, contacts *Contacts, required int) bool {
 }
 func (rt *RoutingTable) Init() {
 
-	for i := 1; i <= maxbucket; i++ {
+	for i := 0; i <= maxbucket; i++ {
 		rt.buckets[i].Init()
 	}
 }

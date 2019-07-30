@@ -2,10 +2,9 @@ package torrent_kad
 
 import (
 	"common"
-	"dht/src/kademlia"
 	"fmt"
+	"kademlia"
 	"math/rand"
-	"net"
 	"net/rpc"
 	"os"
 	"path"
@@ -95,7 +94,11 @@ func processTorrentFile(torrentFile []byte) map[string]interface{} {
 func (this *Client) GetFile(magnetLink string) bool {
 	magnetlinkinfo := processMagnetLink(magnetLink)
 	if !this.Joined {
-		this.Node.Join(net.ParseIP(magnetlinkinfo.tracker).String()) //todo:need to check whether it has joined before
+		if !this.Node.Join(magnetlinkinfo.tracker) {
+			fmt.Println("join fail")
+			return false
+		}
+		this.Joined = true //todo:need to check whether it has joined before
 	}
 	availableServers, ok := this.Node.Get(magnetlinkinfo.infohash)
 	if !ok {
@@ -145,7 +148,7 @@ func (this *Client) GetFile(magnetLink string) bool {
 			continue
 		}
 		client.Call("Peer.GetPieceStatus", magnetlinkinfo.infohash, &availablePieces[cnt])
-		if availablePieces[cnt] == nil {
+		if len(availablePieces[cnt]) == 0 {
 			for i := range pieceOwnStat {
 				pieceOwnStat[i].servers = append(pieceOwnStat[i].servers, server)
 			}
@@ -178,16 +181,27 @@ func (this *Client) GetFile(magnetLink string) bool {
 	for i := 0; i < len(pieceOwnStat); i++ {
 		pieceGot := <-ch
 		pieces = append(pieces, pieceGot)
-		this.peer.downloadingStatus[magnetlinkinfo.infohash][pieceGot.index] = struct{}{}
-		this.peer.downloadedPiece[magnetlinkinfo.infohash][pieceGot.index] = pieceGot.content
+		if _, ok := this.peer.downloadingStatus[magnetlinkinfo.infohash]; ok {
+			this.peer.downloadingStatus[magnetlinkinfo.infohash][pieceGot.index] = struct{}{}
+		} else {
+			this.peer.downloadingStatus[magnetlinkinfo.infohash] = make(IntSet)
+			this.peer.downloadingStatus[magnetlinkinfo.infohash][pieceGot.index] = struct{}{}
+		}
+		if _, ok := this.peer.downloadedPiece[magnetlinkinfo.infohash]; ok {
+			this.peer.downloadedPiece[magnetlinkinfo.infohash][pieceGot.index] = pieceGot.content
+		} else {
+			this.peer.downloadedPiece[magnetlinkinfo.infohash] = make(map[int][]byte)
+			this.peer.downloadedPiece[magnetlinkinfo.infohash][pieceGot.index] = pieceGot.content
+		}
 	}
-	sort.Slice(&pieces, func(i, j int) bool {
+	sort.Slice(pieces, func(i, j int) bool {
 		return pieces[i].index < pieces[j].index
 	})
 	file, _ := os.Create(torrentinfo["name"].(string))
-	for i := 0; i < len(pieces); i++ {
+	for i := 0; i < len(pieces)-1; i++ {
 		file.Write(pieces[i].content)
 	}
+	file.Write(pieces[len(pieces)-1].content[:torrentinfo["length"].(int)%torrentinfo["piece length"].(int)])
 	file.Close()
 	this.peer.addPath(magnetlinkinfo.infohash, torrentinfo["name"].(string), magnetlinkinfo.fileName+".torrent", false, torrentinfo["piece length"].(int))
 	delete(this.peer.downloadingStatus, magnetlinkinfo.infohash)
@@ -208,9 +222,9 @@ func (this *Client) getPieceFromRemote(infohash string, pieceno int, ip string, 
 	}
 	var content = make([]byte, 0)
 	err := client.Call("Peer.GetPiece", TorrentRequest{
-		infohash: infohash,
-		index:    pieceno,
-		length:   length,
+		Infohash: infohash,
+		Index:    pieceno,
+		Length:   length,
 	}, &content)
 	defer client.Close()
 	if err != nil {

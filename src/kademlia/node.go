@@ -15,7 +15,7 @@ const (
 	alpha      = 3
 	tExpire    = 874 * time.Second
 	tRefresh   = 36 * time.Second
-	tReplicate = 36 * time.Second
+	tReplicate = 36 * time.Second //todo: change to normal
 	tRepublish = 864 * time.Second
 )
 

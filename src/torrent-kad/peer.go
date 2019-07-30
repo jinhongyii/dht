@@ -56,23 +56,23 @@ func (this *Peer) GetPieceStatus(infohash string, availablePiece *IntSet) error 
 
 //todo:change network
 type TorrentRequest struct {
-	infohash string
-	index    int
-	length   int
+	Infohash string
+	Index    int
+	Length   int
 }
 
 func (this *Peer) GetPiece(request TorrentRequest, content *[]byte) error {
-	if piece, ok := this.downloadedPiece[request.infohash]; ok {
-		*content = piece[request.index]
+	if piece, ok := this.downloadedPiece[request.Infohash]; ok {
+		*content = piece[request.Index]
 	} else {
-		fileinfo := this.infoHashMap[request.infohash]
-		*content = make([]byte, request.length)
+		fileinfo := this.infoHashMap[request.Infohash]
+		*content = make([]byte, request.Length)
 		if !fileinfo.isDir {
 			file, err := os.Open(fileinfo.filePath)
 			if err != nil {
 				return err
 			}
-			file.ReadAt(*content, int64(request.length*request.index))
+			file.ReadAt(*content, int64(request.Length*request.Index))
 		}
 	}
 	return nil
