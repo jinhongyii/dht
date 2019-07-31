@@ -43,6 +43,8 @@ type Node struct {
 	Predecessor       *FingerType
 	Listening         bool
 	File              *os.File
+	stabilizeMux      sync.Mutex
+	fixMux            sync.Mutex
 }
 
 func (this *Node) Merge(kvpairs *map[string]string, success *bool) error {
@@ -93,6 +95,10 @@ func (this *Node) getWorkingSuccessor() FingerType {
 		}
 	}
 	if i != 1 {
+		if i == m+1 {
+			this.sucMux.Unlock()
+			return FingerType{}
+		}
 		//fmt.Println(this.Ip, " successor set to ", this.Successors[i].Ip, "(getworkingsuccessor)")
 		client, err := rpc.Dial("tcp", this.Successors[i].Ip)
 		if err != nil {
@@ -116,6 +122,9 @@ func (this *Node) getWorkingSuccessor() FingerType {
 
 func (this *Node) stabilize() {
 	suc := this.getWorkingSuccessor()
+	if suc.Id == nil {
+		return
+	}
 	client, e := rpc.Dial("tcp", suc.Ip)
 	if e != nil {
 		//log.Fatal("dialing:", e)
@@ -129,7 +138,7 @@ func (this *Node) stabilize() {
 		this.sucMux.Lock()
 		if (p.Id != nil) && between(this.Id, p.Id, this.Successors[1].Id, false) {
 			this.Successors[1] = p
-			fmt.Println(this.Ip, " successor set to ", p.Ip, "(stabilize)")
+			//fmt.Println(this.Ip, " successor set to ", p.Ip, "(stabilize)")
 		}
 		client, e = rpc.Dial("tcp", this.Successors[1].Ip)
 		this.sucMux.Unlock()
@@ -187,7 +196,7 @@ func (this *Node) ping(ip string) bool {
 				continue
 			}
 		case <-time.After(666 * time.Millisecond):
-			fmt.Println("ping ", ip, " time out")
+			//fmt.Println("ping ", ip, " time out")
 			continue
 		}
 	}
@@ -206,12 +215,16 @@ func (this *Node) checkPredecessor() {
 			client, err := rpc.Dial("tcp", this.getWorkingSuccessor().Ip)
 			if err != nil {
 				fmt.Println(err)
+				return
 			}
 			var success bool
-			client.Call("Node.AdditionalPutMap", this.additionalStorage.V, &success)
-			client.Close()
 			this.KvStorage.Mux.Unlock()
+
+			client.Call("Node.AdditionalPutMap", this.additionalStorage.V, &success)
+			this.additionalStorage.V = make(map[string]string)
 			this.additionalStorage.Mux.Unlock()
+			client.Close()
+
 			//fmt.Println(this.Ip, " predecessor set to nil  prev_predecessor:", tmp)
 		}
 	}
@@ -237,7 +250,7 @@ func (this *Node) fix_fingers(fingerEntry *int) {
 		return
 	}
 	if *fingerEntry == 1 && tmp != this.Finger[*fingerEntry] {
-		fmt.Println(this.Ip, " finger 1 set to ", this.Finger[*fingerEntry].Ip)
+		//fmt.Println(this.Ip, " finger 1 set to ", this.Finger[*fingerEntry].Ip)
 	}
 	fingerFound := this.Finger[*fingerEntry]
 	*fingerEntry++
@@ -307,6 +320,7 @@ func (this *Node) CompleteMigrate(otherNode FingerType, lala *int) error {
 }
 
 func (this *Node) Notify(otherNode FingerType, lalala *int) error {
+
 	if this.Predecessor == nil || between(this.Predecessor.Id, otherNode.Id, this.Id, false) {
 		this.Predecessor = new(FingerType)
 		*this.Predecessor = otherNode
@@ -321,7 +335,7 @@ func (this *Node) Notify(otherNode FingerType, lalala *int) error {
 			this.additionalStorage.V = otherMap
 		}
 
-		fmt.Println(this.Ip, " predecessor set to ", otherNode.Ip)
+		//fmt.Println(this.Ip, " predecessor set to ", otherNode.Ip)
 		return nil
 	} else if this.Predecessor.Ip == otherNode.Ip {
 		return nil
@@ -341,6 +355,10 @@ func (this *Node) FindSuccessor(request *FindRequest, successor *FingerType) err
 	}
 	var suc = new(FingerType)
 	*suc = this.getWorkingSuccessor()
+	if suc.Id == nil {
+		*successor = *suc
+		return errors.New("network fail")
+	}
 	if suc.Id.Cmp(this.Id) == 0 || request.Id.Cmp(this.Id) == 0 {
 		*successor = *suc
 	} else if between(this.Id, &request.Id, suc.Id, true) {
@@ -394,7 +412,7 @@ func (this *Node) Put_(args *ChordKV, success *bool) error {
 	//if err != nil {
 	//	fmt.Println("actually write:", length, " ", err)
 	//}
-	fmt.Println(this.Ip + " put " + args.Key + " => " + args.Val)
+	//fmt.Println(this.Ip + " put " + args.Key + " => " + args.Val)
 	return nil
 }
 func (this *Node) Get_(key *string, val *string) error {
@@ -405,7 +423,7 @@ func (this *Node) Get_(key *string, val *string) error {
 		return errors.New("not found key")
 	}
 	this.KvStorage.Mux.Unlock()
-	fmt.Println(this.Ip + " get " + *key + " => " + *val)
+	//fmt.Println(this.Ip + " get " + *key + " => " + *val)
 	return nil
 }
 func (this *Node) Delete_(key *string, success *bool) error {
@@ -424,7 +442,7 @@ func (this *Node) Delete_(key *string, success *bool) error {
 	//if err != nil {
 	//	fmt.Println("actually write:", length, " ", err)
 	//}
-	fmt.Println(this.Ip + " delete " + *key)
+	//fmt.Println(this.Ip + " delete " + *key)
 	*success = ok
 	return nil
 }
@@ -538,5 +556,15 @@ func (this *Node) AdditionalPutMap(kvMap map[string]string, success *bool) error
 		this.additionalStorage.V[k] = v
 	}
 	this.additionalStorage.Mux.Unlock()
+	return nil
+}
+func (this *Node) QuickStabilize(a int, b *int) error {
+	this.stabilizeMux.Lock()
+	this.stabilize()
+	this.stabilizeMux.Unlock()
+	this.fixMux.Lock()
+	tmp := 1
+	this.fix_fingers(&tmp)
+	this.fixMux.Unlock()
 	return nil
 }

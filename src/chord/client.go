@@ -33,23 +33,27 @@ func (this *Client) Create() {
 
 func (this *Client) Stabilize() {
 	for this.Node_.Listening {
+		this.Node_.stabilizeMux.Lock()
 		this.Node_.stabilize()
-		time.Sleep(333 * time.Millisecond)
+		this.Node_.stabilizeMux.Unlock()
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
 func (this *Client) CheckPredecessor() {
 	for this.Node_.Listening {
 		this.Node_.checkPredecessor()
-		time.Sleep(333 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
 func (this *Client) Fix_fingers() {
 	var fingerEntry = 1
 	for this.Node_.Listening {
+		this.Node_.fixMux.Lock()
 		this.Node_.fix_fingers(&fingerEntry)
-		time.Sleep(333 * time.Millisecond)
+		this.Node_.fixMux.Unlock()
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 func Exists(path string) bool {
@@ -113,6 +117,11 @@ func (this *Client) Join(otherNode string) bool {
 		return this.Join(otherNode)
 	}
 	client.Close()
+	//client,err=rpc.Dial("tcp",p.Ip)
+	//if err==nil {
+	//	client.Call("Node.QuickStabilize", 0, nil)
+	//	client.Close()
+	//}
 	go this.Stabilize()
 	go this.Fix_fingers()
 	go this.CheckPredecessor()
@@ -181,7 +190,7 @@ func (this *Client) Get(key string) (bool, string) {
 		}
 		success = err == nil
 		if !success {
-			time.Sleep(2 * time.Second)
+			time.Sleep(200 * time.Millisecond)
 		}
 	}
 
