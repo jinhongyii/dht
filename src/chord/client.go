@@ -144,6 +144,21 @@ func (this *Client) Put(key string, val string) bool {
 		return false
 	}
 	err = client.Call("Node.Put_", &ChordKV{key, val}, nil)
+	go func() {
+		k_hash := HashString(key)
+		var successor FingerType
+		time.Sleep(300 * time.Millisecond)
+		if this.Node_.Listening {
+			_ = this.Node_.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
+		} else {
+			return
+		}
+		client, err := rpc.Dial("tcp", successor.Ip)
+		if err != nil {
+			return
+		}
+		err = client.Call("Node.Put_", &ChordKV{key, val}, nil)
+	}()
 	client.Close()
 	return err == nil
 }
@@ -177,7 +192,7 @@ func (this *Client) SafeGet(key string) (string, bool) {
 }
 func (this *Client) Get(key string) (bool, string) {
 	var val string
-	var maxrequest = 3
+	var maxrequest = 10
 	var success = false
 	k_hash := HashString(key)
 	var successor FingerType
@@ -190,10 +205,12 @@ func (this *Client) Get(key string) (bool, string) {
 		}
 		success = err == nil
 		if !success {
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(300 * time.Millisecond)
 		}
 	}
-
+	if !success {
+		fmt.Println(successor.Ip, " can't find ", key)
+	}
 	return success, val
 }
 func (this *Client) SafeDel(key string) bool {

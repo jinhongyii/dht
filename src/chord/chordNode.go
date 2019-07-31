@@ -321,7 +321,7 @@ func (this *Node) CompleteMigrate(otherNode FingerType, lala *int) error {
 
 func (this *Node) Notify(otherNode FingerType, lalala *int) error {
 
-	if this.Predecessor == nil || between(this.Predecessor.Id, otherNode.Id, this.Id, false) {
+	if this.Predecessor == nil || between(this.Predecessor.Id, otherNode.Id, this.Id, false) || !this.ping(this.Predecessor.Ip) {
 		this.Predecessor = new(FingerType)
 		*this.Predecessor = otherNode
 		client, err := rpc.Dial("tcp", otherNode.Ip)
@@ -377,10 +377,11 @@ func (this *Node) FindSuccessor(request *FindRequest, successor *FingerType) err
 		request.Times++
 		err := client.Call("Node.FindSuccessor", &request, &result)
 		if err != nil {
-			time.Sleep(1 * time.Second)
-			defer client.Close()
-			fmt.Println(this.Ip, " findSuccessor wait ,request:", request.Id)
-			return this.FindSuccessor(request, successor)
+			//time.Sleep(1 * time.Second)
+			//defer client.Close()
+			//fmt.Println(this.Ip, " findSuccessor wait ,request:", request.Id)
+			//return this.FindSuccessor(request, successor)
+			return err
 		} else {
 			*successor = result
 		}
@@ -401,7 +402,7 @@ func (this *Node) Put_(args *ChordKV, success *bool) error {
 	if err != nil {
 		return err
 	} else {
-		client.Call("Node.AdditionalPut", args, success)
+		client.Go("Node.AdditionalPut", args, success, nil)
 		client.Close()
 	}
 	this.KvStorage.Mux.Lock()
@@ -412,7 +413,7 @@ func (this *Node) Put_(args *ChordKV, success *bool) error {
 	//if err != nil {
 	//	fmt.Println("actually write:", length, " ", err)
 	//}
-	//fmt.Println(this.Ip + " put " + args.Key + " => " + args.Val)
+	fmt.Println(this.Ip + " put " + args.Key + " => " + args.Val)
 	return nil
 }
 func (this *Node) Get_(key *string, val *string) error {
@@ -420,10 +421,20 @@ func (this *Node) Get_(key *string, val *string) error {
 	*val = this.KvStorage.V[*key]
 	if *val == "" {
 		this.KvStorage.Mux.Unlock()
-		return errors.New("not found key")
+
+		client, e := rpc.Dial("tcp", this.getWorkingSuccessor().Ip)
+		if e != nil {
+			return e
+		}
+		e = client.Call("Node.RPCFindAdditional", key, val)
+		client.Close()
+		if e != nil {
+			return e
+		}
+		return nil
 	}
 	this.KvStorage.Mux.Unlock()
-	//fmt.Println(this.Ip + " get " + *key + " => " + *val)
+	fmt.Println(this.Ip + " get " + *key + " => " + *val)
 	return nil
 }
 func (this *Node) Delete_(key *string, success *bool) error {
@@ -431,7 +442,7 @@ func (this *Node) Delete_(key *string, success *bool) error {
 	if err != nil {
 		return err
 	} else {
-		client.Call("Node.AdditionalDel", key, success)
+		client.Go("Node.AdditionalDel", key, success, nil)
 		client.Close()
 	}
 	this.KvStorage.Mux.Lock()
@@ -566,5 +577,15 @@ func (this *Node) QuickStabilize(a int, b *int) error {
 	tmp := 1
 	this.fix_fingers(&tmp)
 	this.fixMux.Unlock()
+	return nil
+}
+func (this *Node) RPCFindAdditional(key string, val *string) error {
+	this.additionalStorage.Mux.Lock()
+	var ok bool
+	*val, ok = this.additionalStorage.V[key]
+	this.additionalStorage.Mux.Unlock()
+	if ok {
+		return errors.New("not found key")
+	}
 	return nil
 }
