@@ -256,27 +256,28 @@ func (this *Client) Dump() {
 
 }
 func (this *Client) Quit() {
-	//client, err := rpc.Dial("tcp", this.Node_.getWorkingSuccessor().Ip)
-	//if err != nil {
-	//	log.Fatal("dialing:", err)
-	//}
-	//err = client.Call("Node.Merge", &this.Node_.KvStorage.V, nil) //todo:
-	//_ = client.Close()
-	////this.wg.Done()
-	//this.Node_.Listening = false
-	////this.Node_.clearbackup()
-	////_ = this.Node_.File.Close()
-	////time.Sleep(2 * time.Second)
-	//err = this.Listener.Close()
-	//if err != nil {
-	//	println(err)
-	//}
-	this.ForceQuit()
+	client, err := rpc.Dial("tcp", this.Node_.getWorkingSuccessor().Ip)
+	if err != nil {
+		fmt.Println("dialing:", err)
+	} else {
+		err = client.Call("Node.Merge", &this.Node_.KvStorage.V, nil) //todo:
+		_ = client.Close()
+	}
+	//this.wg.Done()
+	this.Node_.Listening = false
+	//this.Node_.clearbackup()
+	//_ = this.Node_.File.Close()
+	//time.Sleep(2 * time.Second)
+	err = this.Listener.Close()
+	if err != nil {
+		fmt.Println(err)
+	}
+	//this.ForceQuit()
 }
 func (this *Client) ForceQuit() {
 	//this.wg.Done()
 	this.Node_.Listening = false
-	_ = this.Node_.File.Close()
+	//_ = this.Node_.File.Close()
 	_ = this.Listener.Close()
 
 }
@@ -325,10 +326,10 @@ func (this *Client) Rejoin(ip string) bool {
 		var k_hash = HashString(k)
 		if between(p.Id, k_hash, this.Node_.Id, true) {
 			this.Node_.KvStorage.V[k] = v
-			length, err := this.Node_.File.WriteString("put " + k + " " + v + "\n")
-			if err != nil {
-				fmt.Println("actually write:", length, " ", err)
-			}
+			//length, err := this.Node_.File.WriteString("put " + k + " " + v + "\n")
+			//if err != nil {
+			//	fmt.Println("actually write:", length, " ", err)
+			//}
 		}
 	}
 	this.Node_.KvStorage.Mux.Unlock()
