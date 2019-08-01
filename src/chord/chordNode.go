@@ -101,6 +101,9 @@ func (this *Node) getWorkingSuccessor() FingerType {
 		}
 		//fmt.Println(this.Ip, " successor set to ", this.Successors[i].Ip, "(getworkingsuccessor)")
 		client, err := rpc.Dial("tcp", this.Successors[i].Ip)
+		if err == nil {
+			defer client.Close()
+		}
 		if err != nil {
 			this.sucMux.Unlock()
 			return this.getWorkingSuccessor()
@@ -112,7 +115,6 @@ func (this *Node) getWorkingSuccessor() FingerType {
 			this.Successors[j] = suc_Successors[j-1]
 		}
 		this.sucMux.Unlock()
-		client.Close()
 	} else {
 		this.sucMux.Unlock()
 	}
@@ -126,6 +128,9 @@ func (this *Node) stabilize() {
 		return
 	}
 	client, e := rpc.Dial("tcp", suc.Ip)
+	if e == nil {
+		defer client.Close()
+	}
 	if e != nil {
 		//log.Fatal("dialing:", e)
 		return
@@ -134,13 +139,16 @@ func (this *Node) stabilize() {
 	err := client.Call("Node.GetPredecessor", 0, &p)
 
 	if err == nil && this.ping(p.Ip) {
-		client.Close()
+
 		this.sucMux.Lock()
 		if (p.Id != nil) && between(this.Id, p.Id, this.Successors[1].Id, false) {
 			this.Successors[1] = p
 			//fmt.Println(this.Ip, " successor set to ", p.Ip, "(stabilize)")
 		}
 		client, e = rpc.Dial("tcp", this.Successors[1].Ip)
+		if e == nil {
+			defer client.Close()
+		}
 		this.sucMux.Unlock()
 		if e != nil {
 			//log.Fatal("dialing:", e)
@@ -155,7 +163,7 @@ func (this *Node) stabilize() {
 	var suc_Successors [m + 1]FingerType
 	err = client.Call("Node.GetSuccessors", 0, &suc_Successors)
 	if err != nil {
-		client.Close()
+
 		return
 	}
 	this.sucMux.Lock()
@@ -163,7 +171,6 @@ func (this *Node) stabilize() {
 		this.Successors[i] = suc_Successors[i-1]
 	}
 	this.sucMux.Unlock()
-	client.Close()
 
 }
 
@@ -173,13 +180,15 @@ func (this *Node) ping(ip string) bool {
 		ch := make(chan bool)
 		go func() {
 			client, err := rpc.Dial("tcp", ip)
+			if err == nil {
+				defer client.Close()
+			}
 			if err != nil {
 				ch <- false
 				return
 			} else {
 				var listening bool
 				_ = client.Call("Node.GetListeningStatus", 0, &listening)
-				client.Close()
 				if listening {
 					ch <- true
 				} else {
@@ -213,6 +222,9 @@ func (this *Node) checkPredecessor() {
 				this.KvStorage.V[k] = v
 			}
 			client, err := rpc.Dial("tcp", this.getWorkingSuccessor().Ip)
+			if err == nil {
+				defer client.Close()
+			}
 			if err != nil {
 				fmt.Println(err)
 				return
@@ -223,7 +235,6 @@ func (this *Node) checkPredecessor() {
 			client.Call("Node.AdditionalPutMap", this.additionalStorage.V, &success)
 			this.additionalStorage.V = make(map[string]string)
 			this.additionalStorage.Mux.Unlock()
-			client.Close()
 
 			//fmt.Println(this.Ip, " predecessor set to nil  prev_predecessor:", tmp)
 		}
@@ -321,17 +332,19 @@ func (this *Node) CompleteMigrate(otherNode FingerType, lala *int) error {
 
 func (this *Node) Notify(otherNode FingerType, lalala *int) error {
 
-	if this.Predecessor == nil || between(this.Predecessor.Id, otherNode.Id, this.Id, false) || !this.ping(this.Predecessor.Ip) {
+	if this.Predecessor == nil || between(this.Predecessor.Id, otherNode.Id, this.Id, false) {
 		this.Predecessor = new(FingerType)
 		*this.Predecessor = otherNode
 		client, err := rpc.Dial("tcp", otherNode.Ip)
+		if err == nil {
+			defer client.Close()
+		}
 		if err != nil {
 			fmt.Println(err)
 		} else {
 			useless := 0
 			otherMap := make(map[string]string)
 			client.Call("Node.GetKeyValMap", &useless, &otherMap)
-			client.Close()
 			this.additionalStorage.V = otherMap
 		}
 
@@ -368,6 +381,9 @@ func (this *Node) FindSuccessor(request *FindRequest, successor *FingerType) err
 		next_step := this.closest_preceding_node(&request.Id)
 		//next_step:=this.getWorkingSuccessor()
 		client, e := rpc.Dial("tcp", next_step.Ip)
+		if e == nil {
+			defer client.Close()
+		}
 		if e != nil {
 			fmt.Println("findSuccessor wait")
 			time.Sleep(1 * time.Second)
@@ -385,7 +401,6 @@ func (this *Node) FindSuccessor(request *FindRequest, successor *FingerType) err
 		} else {
 			*successor = result
 		}
-		client.Close()
 	}
 	return nil
 }
@@ -398,12 +413,15 @@ func (this *Node) closest_preceding_node(id *big.Int) FingerType {
 	return this.Successors[1]
 }
 func (this *Node) Put_(args *ChordKV, success *bool) error {
+	//time.Sleep(40*time.Millisecond)
 	client, err := rpc.Dial("tcp", this.getWorkingSuccessor().Ip)
+	if err == nil {
+		defer client.Close()
+	}
 	if err != nil {
 		return err
 	} else {
-		client.Go("Node.AdditionalPut", args, success, nil)
-		client.Close()
+		client.Call("Node.AdditionalPut", args, success)
 	}
 	this.KvStorage.Mux.Lock()
 	this.KvStorage.V[args.Key] = args.Val
@@ -413,37 +431,43 @@ func (this *Node) Put_(args *ChordKV, success *bool) error {
 	//if err != nil {
 	//	fmt.Println("actually write:", length, " ", err)
 	//}
-	fmt.Println(this.Ip + " put " + args.Key + " => " + args.Val)
+	//fmt.Println(this.Ip + " put " + args.Key + " => " + args.Val)
 	return nil
 }
 func (this *Node) Get_(key *string, val *string) error {
+	//time.Sleep(30*time.Millisecond)
 	this.KvStorage.Mux.Lock()
 	*val = this.KvStorage.V[*key]
 	if *val == "" {
 		this.KvStorage.Mux.Unlock()
 
 		client, e := rpc.Dial("tcp", this.getWorkingSuccessor().Ip)
+		if e == nil {
+			defer client.Close()
+		}
 		if e != nil {
 			return e
 		}
 		e = client.Call("Node.RPCFindAdditional", key, val)
-		client.Close()
+
 		if e != nil {
 			return e
 		}
 		return nil
 	}
 	this.KvStorage.Mux.Unlock()
-	fmt.Println(this.Ip + " get " + *key + " => " + *val)
+	//fmt.Println(this.Ip + " get " + *key + " => " + *val)
 	return nil
 }
 func (this *Node) Delete_(key *string, success *bool) error {
 	client, err := rpc.Dial("tcp", this.getWorkingSuccessor().Ip)
+	if err == nil {
+		defer client.Close()
+	}
 	if err != nil {
 		return err
 	} else {
 		client.Go("Node.AdditionalDel", key, success, nil)
-		client.Close()
 	}
 	this.KvStorage.Mux.Lock()
 	_, ok := this.KvStorage.V[*key]

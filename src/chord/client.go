@@ -83,6 +83,9 @@ func (this *Client) Join(otherNode string) bool {
 	}
 	client.Close()
 	client, e = rpc.Dial("tcp", this.Node_.getWorkingSuccessor().Ip)
+	if e == nil {
+		defer client.Close()
+	}
 	if e != nil {
 		return this.Join(otherNode)
 	}
@@ -116,7 +119,6 @@ func (this *Client) Join(otherNode string) bool {
 		fmt.Println(err, "(join)")
 		return this.Join(otherNode)
 	}
-	client.Close()
 	//client,err=rpc.Dial("tcp",p.Ip)
 	//if err==nil {
 	//	client.Call("Node.QuickStabilize", 0, nil)
@@ -140,6 +142,9 @@ func (this *Client) Put(key string, val string) bool {
 	var successor FingerType
 	_ = this.Node_.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
 	client, err := rpc.Dial("tcp", successor.Ip)
+	if err == nil {
+		defer client.Close()
+	}
 	if err != nil {
 		return false
 	}
@@ -158,8 +163,10 @@ func (this *Client) Put(key string, val string) bool {
 			return
 		}
 		err = client.Call("Node.Put_", &ChordKV{key, val}, nil)
+		if err == nil {
+			defer client.Close()
+		}
 	}()
-	client.Close()
 	return err == nil
 }
 func (this *Client) SafeGet(key string) (string, bool) {
@@ -224,6 +231,9 @@ func (this *Client) Del(key string) bool {
 	var successor FingerType
 	_ = this.Node_.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
 	client, err := rpc.Dial("tcp", successor.Ip)
+	if err == nil {
+		defer client.Close()
+	}
 	if err != nil {
 		return false
 	}
@@ -232,7 +242,6 @@ func (this *Client) Del(key string) bool {
 	if err != nil {
 		return false
 	}
-	client.Close()
 	return success
 }
 func (this *Client) Dump() {
@@ -257,11 +266,13 @@ func (this *Client) Dump() {
 }
 func (this *Client) Quit() {
 	client, err := rpc.Dial("tcp", this.Node_.getWorkingSuccessor().Ip)
+	if err == nil {
+		defer client.Close()
+	}
 	if err != nil {
 		fmt.Println("dialing:", err)
 	} else {
 		err = client.Call("Node.Merge", &this.Node_.KvStorage.V, nil) //todo:
-		_ = client.Close()
 	}
 	//this.wg.Done()
 	this.Node_.Listening = false
@@ -308,6 +319,9 @@ func (this *Client) Rejoin(ip string) bool {
 	}
 	client.Close()
 	client, e = rpc.Dial("tcp", this.Node_.getWorkingSuccessor().Ip)
+	if e == nil {
+		defer client.Close()
+	}
 	if e != nil {
 		return false
 	}
