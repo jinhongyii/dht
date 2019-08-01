@@ -2,7 +2,7 @@ package kademlia
 
 //todo:add data validator
 import (
-	"dht/src/chord"
+	"dht/network/chord"
 	"fmt"
 	"math/big"
 	"net"

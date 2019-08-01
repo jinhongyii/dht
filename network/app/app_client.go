@@ -2,8 +2,8 @@ package main
 
 import (
 	"chord"
-	"common"
 	"crypto/sha1"
+	"dht"
 	"errors"
 	"fmt"
 	"io"
@@ -32,7 +32,7 @@ func (this *AppClient) Join(ip string) bool {
 func NewClient(port int) *AppClient {
 	c := new(AppClient)
 	c.server = NewServer()
-	c.node = common.NewNode(port)
+	c.node = dht.NewNode(port)
 	c.node.Server.Register(c.server)
 	c.node.Run(&c.wg)
 	return c

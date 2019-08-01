@@ -10,6 +10,6 @@ func main() {
 	//wg:=sync.WaitGroup{}
 	//client.Node.Run(&wg)
 	//client.Node.Create()
-	//client.PutFile("src/chord/chordNode.go")
-	torrent_kad.GenerateTorrentFile("src")
+	//client.PutFile("network/chord/chordNode.go")
+	torrent_kad.GenerateTorrentFile("network")
 }
