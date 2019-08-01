@@ -584,7 +584,7 @@ func (this *Node) RPCFindAdditional(key string, val *string) error {
 	var ok bool
 	*val, ok = this.additionalStorage.V[key]
 	this.additionalStorage.Mux.Unlock()
-	if ok {
+	if !ok {
 		return errors.New("not found key")
 	}
 	return nil
