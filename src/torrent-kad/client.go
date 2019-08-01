@@ -20,16 +20,16 @@ type Client struct {
 	Joined bool
 }
 
-func (this *Client) PutFile(filePath string) bool {
+func (this *Client) PutFile(filePath string) (string, bool) {
 	if !this.Joined {
 		this.Node.Join(initialNodeIp)
 		this.Joined = true
 	}
 	infohash, exist, isDir := GenerateTorrentFile(filePath)
 	if !exist {
-		return false
+		return "", false
 	}
-	this.peer.addPath(infohash, filePath, path.Base(filePath)+".torrent", isDir, pieceSize)
+	this.peer.addPath(infohash, filePath, filePath+".torrent", isDir, pieceSize)
 	this.Node.Put(infohash, this.Node.Node_.RoutingTable.Ip)
 	magnetLinkBuilder := strings.Builder{}
 	magnetLinkBuilder.WriteString("magnet:?xt=urn:btih:")
@@ -43,7 +43,7 @@ func (this *Client) PutFile(filePath string) bool {
 	magnetLinkBuilder.WriteString("&tr=")
 	magnetLinkBuilder.WriteString(initialNodeIp)
 	fmt.Println("magnetLink:", magnetLinkBuilder.String())
-	return true
+	return magnetLinkBuilder.String(), true
 }
 
 type magnetLinkInfo struct {
@@ -91,7 +91,7 @@ func processTorrentFile(torrentFile []byte) map[string]interface{} {
 	}
 	return torrentinfo.(map[string]interface{})
 }
-func (this *Client) GetFile(magnetLink string) bool {
+func (this *Client) GetFile(magnetLink string, path string) bool {
 	magnetlinkinfo := processMagnetLink(magnetLink)
 	if !this.Joined {
 		if !this.Node.Join(magnetlinkinfo.tracker) {
@@ -197,13 +197,13 @@ func (this *Client) GetFile(magnetLink string) bool {
 	sort.Slice(pieces, func(i, j int) bool {
 		return pieces[i].index < pieces[j].index
 	})
-	file, _ := os.Create(torrentinfo["name"].(string))
+	file, _ := os.Create(path + "/" + torrentinfo["name"].(string))
 	for i := 0; i < len(pieces)-1; i++ {
 		file.Write(pieces[i].content)
 	}
 	file.Write(pieces[len(pieces)-1].content[:torrentinfo["length"].(int)%torrentinfo["piece length"].(int)])
 	file.Close()
-	this.peer.addPath(magnetlinkinfo.infohash, torrentinfo["name"].(string), magnetlinkinfo.fileName+".torrent", false, torrentinfo["piece length"].(int))
+	this.peer.addPath(magnetlinkinfo.infohash, path+"/"+torrentinfo["name"].(string), magnetlinkinfo.fileName+".torrent", false, torrentinfo["piece length"].(int))
 	delete(this.peer.downloadingStatus, magnetlinkinfo.infohash)
 	delete(this.peer.downloadedPiece, magnetlinkinfo.infohash)
 	return true

@@ -49,7 +49,7 @@ func main() {
 
 		case "getFile":
 
-			if app.GetFile(cmd2) {
+			if app.GetFile(cmd2, cmd3) {
 				fmt.Println("get file successful")
 			} else {
 				fmt.Println("get file fail")

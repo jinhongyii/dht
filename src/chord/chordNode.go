@@ -48,15 +48,17 @@ type Node struct {
 }
 
 func (this *Node) Merge(kvpairs *map[string]string, success *bool) error {
-	this.KvStorage.Mux.Lock()
+
 	for k, v := range *kvpairs {
+		this.KvStorage.Mux.Lock()
 		this.KvStorage.V[k] = v
+		this.KvStorage.Mux.Unlock()
 		//length, err := this.File.WriteString("put " + k + " " + v + "\n")
 		//if err != nil {
 		//	fmt.Println("actually write:", length, " ", err)
 		//}
 	}
-	this.KvStorage.Mux.Unlock()
+
 	return nil
 }
 
@@ -86,7 +88,7 @@ func (this *Node) GetSuccessors(a int, successors *[m + 1]FingerType) error {
 	//this.sucMux.RUnlock()
 	return nil
 }
-func (this *Node) getWorkingSuccessor() FingerType {
+func (this *Node) getWorkingSuccessor() FingerType { //todo:try to reduce lock time
 	var i int
 	this.sucMux.Lock()
 	for i = 1; i <= m; i++ {
@@ -208,19 +210,21 @@ func (this *Node) checkPredecessor() {
 			//var tmp = this.Predecessor.Ip
 			this.Predecessor = nil
 			this.additionalStorage.Mux.Lock()
-			this.KvStorage.Mux.Lock()
 			for k, v := range this.additionalStorage.V {
+				this.KvStorage.Mux.Lock()
 				this.KvStorage.V[k] = v
+				this.KvStorage.Mux.Unlock()
 			}
+
 			client, err := rpc.Dial("tcp", this.getWorkingSuccessor().Ip)
 			if err != nil {
 				fmt.Println(err)
 				return
 			}
 			var success bool
-			this.KvStorage.Mux.Unlock()
+			client.Go("Node.AdditionalPutMap", this.additionalStorage.V, &success, nil)
+			this.additionalStorage.V = make(map[string]string)
 			this.additionalStorage.Mux.Unlock()
-			client.Call("Node.AdditionalPutMap", this.additionalStorage.V, &success)
 			client.Close()
 
 			//fmt.Println(this.Ip, " predecessor set to nil  prev_predecessor:", tmp)
@@ -399,7 +403,7 @@ func (this *Node) Put_(args *ChordKV, success *bool) error {
 	if err != nil {
 		return err
 	} else {
-		client.Call("Node.AdditionalPut", args, success)
+		client.Go("Node.AdditionalPut", args, success, nil)
 		client.Close()
 	}
 	this.KvStorage.Mux.Lock()
@@ -429,7 +433,7 @@ func (this *Node) Delete_(key *string, success *bool) error {
 	if err != nil {
 		return err
 	} else {
-		client.Call("Node.AdditionalDel", key, success)
+		client.Go("Node.AdditionalDel", key, success, nil)
 		client.Close()
 	}
 	this.KvStorage.Mux.Lock()

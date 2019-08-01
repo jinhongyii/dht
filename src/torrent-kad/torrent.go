@@ -82,6 +82,7 @@ func GenerateTorrentFile(filepath string) (string, bool, bool) {
 	file.Close()
 	var stringbuilder strings.Builder
 	stringbuilder.WriteString("d4:name")
+	originalPath := filepath
 	filename := path.Base(filepath)
 	f, _ := os.Stat(filepath)
 	isDirectory := f.IsDir()
@@ -105,11 +106,11 @@ func GenerateTorrentFile(filepath string) (string, bool, bool) {
 		stringbuilder.WriteString("i" + strconv.Itoa(int(f.Size())) + "e")
 	}
 	stringbuilder.WriteString("e")
-	newTorrentFile, _ := os.Create(filename + ".torrent")
+	newTorrentFile, _ := os.Create(originalPath + ".torrent")
 	newTorrentFile.WriteString(stringbuilder.String())
 	newTorrentFile.Close()
 
-	return GetCompleteFileHash(filename + ".torrent"), true, isDirectory
+	return GetCompleteFileHash(originalPath + ".torrent"), true, isDirectory
 }
 
 func GetDirectoryHash(hashbuilder *strings.Builder, filepath string) {
