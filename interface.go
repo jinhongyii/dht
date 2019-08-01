@@ -1,4 +1,4 @@
-package dht
+package main
 
 type dhtNode interface {
 	Get(k string) (bool, string)

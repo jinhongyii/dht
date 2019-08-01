@@ -1,7 +1,6 @@
 package chord
 
 import (
-	"bufio"
 	"crypto/sha1"
 	"errors"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"net"
 	"net/rpc"
 	"os"
-	"strings"
 	"sync"
 	"time"
 )
@@ -282,35 +280,36 @@ func (this *Node) fix_fingers(fingerEntry *int) {
 		}
 	}
 }
-func (this *Node) clearbackup() {
-	this.File.Close()
-	this.File, _ = os.Create(strings.ReplaceAll(this.Ip, ":", "_") + ".backup")
-}
-func (this *Node) recover() {
-	bufferReader := bufio.NewReader(this.File)
-	this.File.Seek(0, 0)
-	this.KvStorage.Mux.Lock()
-	for {
-		line, e := bufferReader.ReadString('\n')
-		if e != nil {
-			this.KvStorage.Mux.Unlock()
-			return
-		}
-		words := strings.Split(line, " ")
-		if words[0] == "put" {
-			this.KvStorage.V[words[1]] = words[2][:len(words[2])-1]
-		} else if words[0] == "delete" {
-			delete(this.KvStorage.V, words[1][:len(words[1])-1])
-		} else if words[0] == "append" {
-			this.KvStorage.V[words[1]] += words[2][:len(words[2])-1]
-		} else {
-			tmp := this.KvStorage.V[words[1]]
-			tmp = strings.ReplaceAll(tmp, words[2][:len(words[2])-1], "")
-			this.KvStorage.V[words[1]] = tmp
-		}
-	}
 
-}
+//func (this *Node) clearbackup() {
+//	this.File.Close()
+//	this.File, _ = os.Create(strings.ReplaceAll(this.Ip, ":", "_") + ".backup")
+//}
+//func (this *Node) recover() {
+//	bufferReader := bufio.NewReader(this.File)
+//	this.File.Seek(0, 0)
+//	this.KvStorage.Mux.Lock()
+//	for {
+//		line, e := bufferReader.ReadString('\n')
+//		if e != nil {
+//			this.KvStorage.Mux.Unlock()
+//			return
+//		}
+//		words := strings.Split(line, " ")
+//		if words[0] == "put" {
+//			this.KvStorage.V[words[1]] = words[2][:len(words[2])-1]
+//		} else if words[0] == "delete" {
+//			delete(this.KvStorage.V, words[1][:len(words[1])-1])
+//		} else if words[0] == "append" {
+//			this.KvStorage.V[words[1]] += words[2][:len(words[2])-1]
+//		} else {
+//			tmp := this.KvStorage.V[words[1]]
+//			tmp = strings.ReplaceAll(tmp, words[2][:len(words[2])-1], "")
+//			this.KvStorage.V[words[1]] = tmp
+//		}
+//	}
+//
+//}
 func (this *Node) CompleteMigrate(otherNode FingerType, lala *int) error {
 	var deletion []string
 	this.KvStorage.Mux.Lock()
@@ -552,26 +551,27 @@ func (this *Node) Append(kv ChordKV, success *bool) error {
 	*success = true
 	return nil
 }
-func (this *Node) Remove(kv ChordKV, success *bool) error {
-	this.KvStorage.Mux.Lock()
-	tmp, ok := this.KvStorage.V[kv.Key]
-	if !ok {
-		this.KvStorage.Mux.Unlock()
-		*success = false
-		return nil
-	} else {
-		removed := strings.ReplaceAll(tmp, kv.Val, "")
-		//length, err := this.File.WriteString("remove " + kv.Key + " " + kv.Val + "\n")
-		//if err != nil {
-		//	fmt.Println("actually write:", length, " ", err)
-		//}
-		this.KvStorage.V[kv.Key] = removed
-		this.KvStorage.Mux.Unlock()
-		*success = true
-		return nil
-	}
 
-}
+//func (this *Node) Remove(kv ChordKV, success *bool) error {
+//	this.KvStorage.Mux.Lock()
+//	tmp, ok := this.KvStorage.V[kv.Key]
+//	if !ok {
+//		this.KvStorage.Mux.Unlock()
+//		*success = false
+//		return nil
+//	} else {
+//		removed := strings.ReplaceAll(tmp, kv.Val, "")
+//		//length, err := this.File.WriteString("remove " + kv.Key + " " + kv.Val + "\n")
+//		//if err != nil {
+//		//	fmt.Println("actually write:", length, " ", err)
+//		//}
+//		this.KvStorage.V[kv.Key] = removed
+//		this.KvStorage.Mux.Unlock()
+//		*success = true
+//		return nil
+//	}
+//
+//}
 
 func (this *Node) AdditionalPut(key *ChordKV, success *bool) error {
 	this.additionalStorage.Mux.Lock()

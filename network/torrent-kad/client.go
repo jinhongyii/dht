@@ -235,7 +235,7 @@ func (this *Client) getPieceFromRemote(infohash string, pieceno int, ip string, 
 }
 
 func (this *Client) Init(port int) {
-	this.Node = dht.NewNode(port)
+	this.Node = main.NewNode(port)
 	err := this.Node.Server.Register(&this.peer)
 	if err != nil {
 		fmt.Println(err)

@@ -46,7 +46,7 @@ func main() {
 	localAddress := chord.GetLocalAddress()
 	fmt.Println("local address: " + localAddress)
 	port := 3000
-	nodes[0] = dht.NewNode(port)
+	nodes[0] = main.NewNode(port)
 	nodes[0].Run(&wg)
 	nodes[0].Create()
 	kvMap := make(map[string]string)
@@ -56,7 +56,7 @@ func main() {
 		for j := 0; j < 15; j++ {
 			var index = i*15 + j + 1
 			port++
-			nodes[index] = dht.NewNode(port)
+			nodes[index] = main.NewNode(port)
 			nodes[index].Run(&wg)
 			if !nodes[index].Join(localAddress + ":" + strconv.Itoa(3000+5*i)) {
 				log.Fatal("join failed at ", 3000+5*i)

@@ -32,7 +32,7 @@ func (this *AppClient) Join(ip string) bool {
 func NewClient(port int) *AppClient {
 	c := new(AppClient)
 	c.server = NewServer()
-	c.node = dht.NewNode(port)
+	c.node = main.NewNode(port)
 	c.node.Server.Register(c.server)
 	c.node.Run(&c.wg)
 	return c

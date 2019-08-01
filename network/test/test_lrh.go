@@ -78,7 +78,7 @@ func main() {
 
 	id = 0
 
-	node[id] = dht.NewNode(2000)
+	node[id] = main.NewNode(2000)
 	(node[id]).Run()
 	(node[id]).Create()
 	id++
@@ -88,7 +88,7 @@ func main() {
 	for t := 0; t < 5; t++ {
 		fmt.Println("Start to test join")
 		for i := 0; i < 30; i++ {
-			node[id] = dht.NewNode(id + 2000)
+			node[id] = main.NewNode(id + 2000)
 			(node[id]).Run()
 			(node[id]).Join(localAddr + ":" + strconv.Itoa(2000+rand.Int()%id))
 			id++

@@ -1,11 +1,11 @@
-package dht
+package main
 
 import (
 	"fmt"
 	"net"
 	"net/rpc"
 	"strconv"
-	"test/chord"
+	"test/network/chord"
 )
 
 func NewNode(port int) dhtNode {
