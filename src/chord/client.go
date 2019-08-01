@@ -83,6 +83,9 @@ func (this *Client) Join(otherNode string) bool {
 	}
 	client.Close()
 	client, e = rpc.Dial("tcp", this.Node_.getWorkingSuccessor().Ip)
+	if e == nil {
+		defer client.Close()
+	}
 	if e != nil {
 		return this.Join(otherNode)
 	}
@@ -116,7 +119,6 @@ func (this *Client) Join(otherNode string) bool {
 		fmt.Println(err, "(join)")
 		return this.Join(otherNode)
 	}
-	client.Close()
 	//client,err=rpc.Dial("tcp",p.Ip)
 	//if err==nil {
 	//	client.Call("Node.QuickStabilize", 0, nil)
@@ -140,11 +142,31 @@ func (this *Client) Put(key string, val string) bool {
 	var successor FingerType
 	_ = this.Node_.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
 	client, err := rpc.Dial("tcp", successor.Ip)
+	if err == nil {
+		defer client.Close()
+	}
 	if err != nil {
 		return false
 	}
 	err = client.Call("Node.Put_", &ChordKV{key, val}, nil)
-	client.Close()
+	go func() {
+		k_hash := HashString(key)
+		var successor FingerType
+		time.Sleep(300 * time.Millisecond)
+		if this.Node_.Listening {
+			_ = this.Node_.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
+		} else {
+			return
+		}
+		client, err := rpc.Dial("tcp", successor.Ip)
+		if err != nil {
+			return
+		}
+		err = client.Call("Node.Put_", &ChordKV{key, val}, nil)
+		if err == nil {
+			defer client.Close()
+		}
+	}()
 	return err == nil
 }
 func (this *Client) SafeGet(key string) (string, bool) {
@@ -177,7 +199,7 @@ func (this *Client) SafeGet(key string) (string, bool) {
 }
 func (this *Client) Get(key string) (bool, string) {
 	var val string
-	var maxrequest = 3
+	var maxrequest = 10
 	var success = false
 	k_hash := HashString(key)
 	var successor FingerType
@@ -190,10 +212,12 @@ func (this *Client) Get(key string) (bool, string) {
 		}
 		success = err == nil
 		if !success {
-			time.Sleep(2 * time.Second)
+			time.Sleep(300 * time.Millisecond)
 		}
 	}
-
+	if !success {
+		fmt.Println(successor.Ip, " can't find ", key)
+	}
 	return success, val
 }
 func (this *Client) SafeDel(key string) bool {
@@ -207,6 +231,9 @@ func (this *Client) Del(key string) bool {
 	var successor FingerType
 	_ = this.Node_.FindSuccessor(&FindRequest{*k_hash, 0}, &successor)
 	client, err := rpc.Dial("tcp", successor.Ip)
+	if err == nil {
+		defer client.Close()
+	}
 	if err != nil {
 		return false
 	}
@@ -215,7 +242,6 @@ func (this *Client) Del(key string) bool {
 	if err != nil {
 		return false
 	}
-	client.Close()
 	return success
 }
 func (this *Client) Dump() {
@@ -239,27 +265,30 @@ func (this *Client) Dump() {
 
 }
 func (this *Client) Quit() {
-	//client, err := rpc.Dial("tcp", this.Node_.getWorkingSuccessor().Ip)
-	//if err != nil {
-	//	log.Fatal("dialing:", err)
-	//}
-	//err = client.Call("Node.Merge", &this.Node_.KvStorage.V, nil) //todo:
-	//_ = client.Close()
-	////this.wg.Done()
-	//this.Node_.Listening = false
-	////this.Node_.clearbackup()
-	////_ = this.Node_.File.Close()
-	////time.Sleep(2 * time.Second)
-	//err = this.Listener.Close()
-	//if err != nil {
-	//	println(err)
-	//}
-	this.ForceQuit()
+	client, err := rpc.Dial("tcp", this.Node_.getWorkingSuccessor().Ip)
+	if err == nil {
+		defer client.Close()
+	}
+	if err != nil {
+		fmt.Println("dialing:", err)
+	} else {
+		err = client.Call("Node.Merge", &this.Node_.KvStorage.V, nil) //todo:
+	}
+	//this.wg.Done()
+	this.Node_.Listening = false
+	//this.Node_.clearbackup()
+	//_ = this.Node_.File.Close()
+	//time.Sleep(2 * time.Second)
+	err = this.Listener.Close()
+	if err != nil {
+		fmt.Println(err)
+	}
+	//this.ForceQuit()
 }
 func (this *Client) ForceQuit() {
 	//this.wg.Done()
 	this.Node_.Listening = false
-	_ = this.Node_.File.Close()
+	//_ = this.Node_.File.Close()
 	_ = this.Listener.Close()
 
 }
@@ -290,6 +319,9 @@ func (this *Client) Rejoin(ip string) bool {
 	}
 	client.Close()
 	client, e = rpc.Dial("tcp", this.Node_.getWorkingSuccessor().Ip)
+	if e == nil {
+		defer client.Close()
+	}
 	if e != nil {
 		return false
 	}
@@ -308,10 +340,10 @@ func (this *Client) Rejoin(ip string) bool {
 		var k_hash = HashString(k)
 		if between(p.Id, k_hash, this.Node_.Id, true) {
 			this.Node_.KvStorage.V[k] = v
-			length, err := this.Node_.File.WriteString("put " + k + " " + v + "\n")
-			if err != nil {
-				fmt.Println("actually write:", length, " ", err)
-			}
+			//length, err := this.Node_.File.WriteString("put " + k + " " + v + "\n")
+			//if err != nil {
+			//	fmt.Println("actually write:", length, " ", err)
+			//}
 		}
 	}
 	this.Node_.KvStorage.Mux.Unlock()
