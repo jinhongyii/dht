@@ -18,8 +18,9 @@ func NewNode(port int) dhtNode {
 	if err != nil {
 		fmt.Println(err)
 	}
-	var e error
-	newClient.Listener, e = net.Listen("tcp", newClient.Node_.Ip)
+
+	listener, e := net.Listen("tcp", newClient.Node_.Ip)
+	newClient.Listener = listener
 	if e != nil {
 		fmt.Println(e)
 	}
