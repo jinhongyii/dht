@@ -229,7 +229,7 @@ func ping(header Contact, ip string) (bool, Contact) {
 				fmt.Println("ping ", ip, " failed")
 				return false, Contact{}
 			}
-		case <-time.After(666 * time.Millisecond):
+		case <-time.After(200 * time.Millisecond):
 			fmt.Println("ping ", ip, " time out")
 			continue
 		}
@@ -297,7 +297,7 @@ type StoreReturn struct {
 //used for publish replicate and republish
 func (this *Node) IterativeStore(key string, val string, origin bool, expire time.Time) {
 	k_closest := this.IterativeFindNode(key)
-	fmt.Println("store: get k closest list: ", k_closest)
+	//fmt.Println("store: get k closest list: ", k_closest)
 	if origin {
 		this.KvStorage.put(key, val, true, time.Now(), false)
 		for _, contact := range k_closest {
@@ -310,7 +310,7 @@ func (this *Node) IterativeStore(key string, val string, origin bool, expire tim
 	}
 }
 func (this *Node) RPCStore(request StoreRequest, ret *StoreReturn) error {
-	fmt.Println("put ", request.Pair, " at ", this.RoutingTable.Ip, " from ", request.Header.Ip)
+	//fmt.Println("put ", request.Pair, " at ", this.RoutingTable.Ip, " from ", request.Header.Ip)
 	this.RoutingTable.update(&request.Header)
 	this.KvStorage.put(request.Pair.Key, request.Pair.Val, false, request.Expire, request.Replicate)
 	ret.Success = true
@@ -347,11 +347,11 @@ type FindValueReturn struct {
 }
 
 func (this *Node) RPCFindValue(request FindValueRequest, ret *FindValueReturn) error {
-	fmt.Println(this.RoutingTable.Ip, " receive find value")
+	//fmt.Println(this.RoutingTable.Ip, " receive find value")
 	this.RoutingTable.update(&request.Header)
 	val, ok := this.KvStorage.get(request.Key)
 	if ok {
-		fmt.Println("get ", request.Key, " => ", val, " at ", this.RoutingTable.Ip, " from ", request.Header.Ip)
+		//fmt.Println("get ", request.Key, " => ", val, " at ", this.RoutingTable.Ip, " from ", request.Header.Ip)
 		(*ret).Val = val
 		ret.Closest = nil
 	} else {

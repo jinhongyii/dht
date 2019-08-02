@@ -2,13 +2,16 @@ package torrent_kad
 
 import (
 	"common"
+	"crypto/sha1"
 	"fmt"
+	"io/ioutil"
 	"kademlia"
 	"math/rand"
 	"net/rpc"
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -29,7 +32,8 @@ func (this *Client) PutFile(filePath string) (string, bool) {
 	if !exist {
 		return "", false
 	}
-	this.peer.addPath(infohash, filePath, filePath+".torrent", isDir, pieceSize)
+	this.peer.addFileInfo(infohash, filePath, filePath+".torrent", isDir, pieceSize)
+	this.peer.openFileio(infohash)
 	this.Node.Put(infohash, this.Node.Node_.RoutingTable.Ip)
 	magnetLinkBuilder := strings.Builder{}
 	magnetLinkBuilder.WriteString("magnet:?xt=urn:btih:")
@@ -124,18 +128,50 @@ func (this *Client) GetFile(magnetLink string, path string) bool {
 		torrentGot = true
 		break
 	}
-	this.Node.Put(magnetlinkinfo.infohash, this.Node.Node_.RoutingTable.Ip)
 	if !torrentGot {
 		fmt.Println("torrent file not got")
 		return false
 	}
 	torrentinfo := processTorrentFile(torrentFile)
+	_, isdir := torrentinfo["files"]
+	if !isdir {
+		this.peer.downloadingStatus[magnetlinkinfo.infohash] = make(IntSet)
+		this.peer.addFileInfo(magnetlinkinfo.infohash, path+"/"+torrentinfo["name"].(string),
+			magnetlinkinfo.fileName+".torrent", isdir, torrentinfo["piece length"].(int))
+		this.Node.Put(magnetlinkinfo.infohash, this.Node.Node_.RoutingTable.Ip)
+		this.getPieces(availableServers, torrentinfo, &magnetlinkinfo, path)
+
+		file, _ := os.Create(path + "/" + torrentinfo["name"].(string))
+		recvFile := assembleFile(path, len(torrentinfo["pieces"].(string))/20, magnetlinkinfo.infohash,
+			torrentinfo["length"].(int), torrentinfo["piece length"].(int))
+		file.Write(recvFile)
+		file.Close()
+		this.peer.openFileio(magnetlinkinfo.infohash)
+		delete(this.peer.downloadingStatus, magnetlinkinfo.infohash)
+		os.RemoveAll(path + "/" + magnetlinkinfo.infohash)
+	}
+	return true
+}
+
+type stat struct {
+	servers []string
+	index   int
+}
+
+func assembleFile(path string, piecenum int, infohash string, totlen int, piece_length int) []byte {
+	content := make([]byte, 0)
+
+	for i := 0; i < piecenum-1; i++ {
+		buf, _ := ioutil.ReadFile(path + "/" + infohash + "/" + strconv.Itoa(i) + ".piece")
+		content = append(content, buf...)
+	}
+	buf, _ := ioutil.ReadFile(path + "/" + infohash + "/" + strconv.Itoa(piecenum-1) + ".piece")
+	content = append(content, buf[:totlen%piece_length]...)
+	return content
+}
+func (this *Client) getPieces(availableServers kademlia.Set, torrentinfo map[string]interface{}, magnetlinkinfo *magnetLinkInfo, filepath string) {
 	availablePieces := make([]IntSet, availableServers.Len())
 	cnt := 0
-	type stat struct {
-		servers []string
-		index   int
-	}
 	pieceOwnStat := make([]stat, len(torrentinfo["pieces"].(string))/20)
 	for i := range pieceOwnStat {
 		pieceOwnStat[i].index = i
@@ -160,53 +196,45 @@ func (this *Client) GetFile(magnetLink string, path string) bool {
 		client.Close()
 		cnt++
 	}
+	var original = make([]stat, len(pieceOwnStat))
+	copy(original, pieceOwnStat)
 	sort.Slice(pieceOwnStat, func(i, j int) bool {
 		return len(pieceOwnStat[i].servers) < len(pieceOwnStat[j].servers)
 	})
 	ch := make(chan FilePiece, 1)
 	for _, i := range pieceOwnStat {
-		var randServer int
-		for {
-			randServer = rand.Intn(len(i.servers))
-			if this.Node.Ping(i.servers[randServer]) {
-				break
-			} else {
-				i.servers = append(i.servers[:randServer], i.servers[randServer+1:]...)
-			}
-		}
-		go this.getPieceFromRemote(magnetlinkinfo.infohash, i.index, i.servers[randServer], torrentinfo["piece length"].(int), ch)
+		this.sendGetPieceRequest(&i, i.index, magnetlinkinfo, torrentinfo, ch)
 	}
-	pieces := make([]FilePiece, 0)
+	os.MkdirAll(filepath+"/"+magnetlinkinfo.infohash, 0666)
 
 	for i := 0; i < len(pieceOwnStat); i++ {
 		pieceGot := <-ch
-		pieces = append(pieces, pieceGot)
-		if _, ok := this.peer.downloadingStatus[magnetlinkinfo.infohash]; ok {
-			this.peer.downloadingStatus[magnetlinkinfo.infohash][pieceGot.index] = struct{}{}
-		} else {
-			this.peer.downloadingStatus[magnetlinkinfo.infohash] = make(IntSet)
-			this.peer.downloadingStatus[magnetlinkinfo.infohash][pieceGot.index] = struct{}{}
+		hash := sha1.Sum(pieceGot.content)
+		if string(hash[:]) != torrentinfo["pieces"].(string)[pieceGot.index*20:(pieceGot.index+1)*20] {
+			this.sendGetPieceRequest(&original[pieceGot.index], pieceGot.index, magnetlinkinfo, torrentinfo, ch)
+			i--
 		}
-		if _, ok := this.peer.downloadedPiece[magnetlinkinfo.infohash]; ok {
-			this.peer.downloadedPiece[magnetlinkinfo.infohash][pieceGot.index] = pieceGot.content
+		tmpFile, _ := os.Create(filepath + "/" + magnetlinkinfo.infohash + "/" + strconv.Itoa(pieceGot.index) + ".piece")
+		tmpFile.Write(pieceGot.content)
+		tmpFile.Close()
+
+		this.peer.downloadingStatus[magnetlinkinfo.infohash][pieceGot.index] = struct{}{}
+
+	}
+	return
+}
+
+func (this *Client) sendGetPieceRequest(serverStat *stat, index int, magnetlinkinfo *magnetLinkInfo, torrentinfo map[string]interface{}, ch chan FilePiece) {
+	var randServer int
+	for {
+		randServer = rand.Intn(len(serverStat.servers))
+		if this.Node.Ping(serverStat.servers[randServer]) {
+			break
 		} else {
-			this.peer.downloadedPiece[magnetlinkinfo.infohash] = make(map[int][]byte)
-			this.peer.downloadedPiece[magnetlinkinfo.infohash][pieceGot.index] = pieceGot.content
+			serverStat.servers = append(serverStat.servers[:randServer], serverStat.servers[randServer+1:]...)
 		}
 	}
-	sort.Slice(pieces, func(i, j int) bool {
-		return pieces[i].index < pieces[j].index
-	})
-	file, _ := os.Create(path + "/" + torrentinfo["name"].(string))
-	for i := 0; i < len(pieces)-1; i++ {
-		file.Write(pieces[i].content)
-	}
-	file.Write(pieces[len(pieces)-1].content[:torrentinfo["length"].(int)%torrentinfo["piece length"].(int)])
-	file.Close()
-	this.peer.addPath(magnetlinkinfo.infohash, path+"/"+torrentinfo["name"].(string), magnetlinkinfo.fileName+".torrent", false, torrentinfo["piece length"].(int))
-	delete(this.peer.downloadingStatus, magnetlinkinfo.infohash)
-	delete(this.peer.downloadedPiece, magnetlinkinfo.infohash)
-	return true
+	go this.getPieceFromRemote(magnetlinkinfo.infohash, index, serverStat.servers[randServer], torrentinfo["piece length"].(int), ch)
 }
 
 type FilePiece struct {
@@ -221,7 +249,7 @@ func (this *Client) getPieceFromRemote(infohash string, pieceno int, ip string, 
 		return
 	}
 	var content = make([]byte, 0)
-	err := client.Call("Peer.GetPiece", TorrentRequest{
+	err := client.Call("Peer.GetFilePiece", TorrentRequest{
 		Infohash: infohash,
 		Index:    pieceno,
 		Length:   length,

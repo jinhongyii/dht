@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"io/ioutil"
 	torrent_kad "torrent-kad"
 )
 
@@ -11,5 +13,7 @@ func main() {
 	//client.Node.Run(&wg)
 	//client.Node.Create()
 	//client.PutFile("src/chord/chordNode.go")
-	torrent_kad.GenerateTorrentFile("src")
+	torrent, _ := ioutil.ReadFile("src.torrent")
+	decoder := torrent_kad.NewDecoder(string(torrent))
+	fmt.Println(decoder.Get())
 }

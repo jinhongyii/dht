@@ -5,6 +5,8 @@ import (
 	"io/ioutil"
 	"net/rpc"
 	"os"
+	"strconv"
+	"sync"
 )
 
 type IntSet map[int]struct{}
@@ -12,14 +14,12 @@ type IntSet map[int]struct{}
 type Peer struct {
 	infoHashMap       map[string]basicFileInfo //todo:save a fstream in the map
 	downloadingStatus map[string]IntSet
-	downloadedPiece   map[string]map[int][]byte
 	server            *rpc.Server
 }
 
 func (this *Peer) Init() {
 	this.server = rpc.NewServer()
 	this.downloadingStatus = make(map[string]IntSet)
-	this.downloadedPiece = make(map[string]map[int][]byte)
 	this.infoHashMap = make(map[string]basicFileInfo)
 }
 
@@ -28,6 +28,8 @@ type basicFileInfo struct {
 	filePath    string
 	isDir       bool
 	pieceSize   int
+	fileio      *os.File
+	fileMux     sync.Mutex
 }
 
 func (this *Peer) GetTorrentFile(infoHash string, torrent *[]byte) error {
@@ -61,22 +63,37 @@ type TorrentRequest struct {
 	Length   int
 }
 
-func (this *Peer) GetPiece(request TorrentRequest, content *[]byte) error {
-	if piece, ok := this.downloadedPiece[request.Infohash]; ok {
-		*content = piece[request.Index]
+func (this *Peer) GetFilePiece(request TorrentRequest, content *[]byte) error {
+	if _, ok := this.downloadingStatus[request.Infohash]; ok {
+		fileinfo := this.infoHashMap[request.Infohash]
+		path := fileinfo.filePath
+		fileinfo.fileMux.Lock()
+		*content, _ = ioutil.ReadFile(path + "/" + request.Infohash + "/" + strconv.Itoa(request.Index) + ".piece")
+		fileinfo.fileMux.Unlock()
 	} else {
 		fileinfo := this.infoHashMap[request.Infohash]
 		*content = make([]byte, request.Length)
 		if !fileinfo.isDir {
-			file, err := os.Open(fileinfo.filePath)
-			if err != nil {
-				return err
-			}
+			fileinfo.fileMux.Lock()
+			file := fileinfo.fileio
 			file.ReadAt(*content, int64(request.Length*request.Index))
+			fileinfo.fileMux.Unlock()
 		}
 	}
 	return nil
 }
-func (this *Peer) addPath(infohash string, filePath string, torrentPath string, isDir bool, pieceSize int) {
-	this.infoHashMap[infohash] = basicFileInfo{filePath: filePath, torrentPath: torrentPath, isDir: isDir, pieceSize: pieceSize}
+
+//func GetDirectoryPiece(request TorrentRequest,content*[]byte)error{
+//
+//}
+func (this *Peer) addFileInfo(infohash string, filePath string, torrentPath string, isDir bool, pieceSize int) {
+	var file *os.File
+	this.infoHashMap[infohash] = basicFileInfo{filePath: filePath, torrentPath: torrentPath, isDir: isDir, pieceSize: pieceSize,
+		fileio: file, fileMux: sync.Mutex{}}
+
+}
+func (this *Peer) openFileio(infohash string) {
+	tmp := this.infoHashMap[infohash]
+	tmp.fileio, _ = os.Open(this.infoHashMap[infohash].filePath)
+	this.infoHashMap[infohash] = tmp
 }

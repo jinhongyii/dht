@@ -72,7 +72,7 @@ func (this *Client) Run() {
 
 	var e error
 	this.listener, e = net.Listen("tcp", this.Node_.RoutingTable.Ip)
-	fmt.Println("listen at ", this.Node_.RoutingTable.Ip)
+	//fmt.Println("listen at ", this.Node_.RoutingTable.Ip)
 	if e != nil {
 		fmt.Println(e)
 		return
