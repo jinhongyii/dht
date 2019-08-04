@@ -134,19 +134,22 @@ func (this *Client) GetFile(magnetLink string, path string) bool {
 	}
 	torrentinfo := processTorrentFile(torrentFile)
 	_, isdir := torrentinfo["files"]
+	this.peer.downloadingStatus[magnetlinkinfo.infohash] = make(IntSet)
+	this.peer.addFileInfo(magnetlinkinfo.infohash, path+"/"+torrentinfo["name"].(string),
+		magnetlinkinfo.fileName+".torrent", isdir, torrentinfo["piece length"].(int))
+	this.Node.Put(magnetlinkinfo.infohash, this.Node.Node_.RoutingTable.Ip)
+	this.getPieces(availableServers, torrentinfo, &magnetlinkinfo, path, isdir)
 	if !isdir {
-		this.peer.downloadingStatus[magnetlinkinfo.infohash] = make(IntSet)
-		this.peer.addFileInfo(magnetlinkinfo.infohash, path+"/"+torrentinfo["name"].(string),
-			magnetlinkinfo.fileName+".torrent", isdir, torrentinfo["piece length"].(int))
-		this.Node.Put(magnetlinkinfo.infohash, this.Node.Node_.RoutingTable.Ip)
-		this.getPieces(availableServers, torrentinfo, &magnetlinkinfo, path)
-
 		file, _ := os.Create(path + "/" + torrentinfo["name"].(string))
 		recvFile := assembleFile(path, len(torrentinfo["pieces"].(string))/20, magnetlinkinfo.infohash,
 			torrentinfo["length"].(int), torrentinfo["piece length"].(int))
 		file.Write(recvFile)
 		file.Close()
 		this.peer.openFileio(magnetlinkinfo.infohash)
+		delete(this.peer.downloadingStatus, magnetlinkinfo.infohash)
+		os.RemoveAll(path + "/" + magnetlinkinfo.infohash)
+	} else {
+		assembleDirectory(path, magnetlinkinfo.infohash, torrentinfo)
 		delete(this.peer.downloadingStatus, magnetlinkinfo.infohash)
 		os.RemoveAll(path + "/" + magnetlinkinfo.infohash)
 	}
@@ -169,7 +172,7 @@ func assembleFile(path string, piecenum int, infohash string, totlen int, piece_
 	content = append(content, buf[:totlen%piece_length]...)
 	return content
 }
-func (this *Client) getPieces(availableServers kademlia.Set, torrentinfo map[string]interface{}, magnetlinkinfo *magnetLinkInfo, filepath string) {
+func (this *Client) getPieces(availableServers kademlia.Set, torrentinfo map[string]interface{}, magnetlinkinfo *magnetLinkInfo, filepath string, isdir bool) {
 	availablePieces := make([]IntSet, availableServers.Len())
 	cnt := 0
 	pieceOwnStat := make([]stat, len(torrentinfo["pieces"].(string))/20)
@@ -203,7 +206,7 @@ func (this *Client) getPieces(availableServers kademlia.Set, torrentinfo map[str
 	})
 	ch := make(chan FilePiece, 1)
 	for _, i := range pieceOwnStat {
-		this.sendGetPieceRequest(&i, i.index, magnetlinkinfo, torrentinfo, ch)
+		this.sendGetPieceRequest(&i, i.index, magnetlinkinfo, torrentinfo, ch, isdir)
 	}
 	os.MkdirAll(filepath+"/"+magnetlinkinfo.infohash, 0666)
 
@@ -211,7 +214,7 @@ func (this *Client) getPieces(availableServers kademlia.Set, torrentinfo map[str
 		pieceGot := <-ch
 		hash := sha1.Sum(pieceGot.content)
 		if string(hash[:]) != torrentinfo["pieces"].(string)[pieceGot.index*20:(pieceGot.index+1)*20] {
-			this.sendGetPieceRequest(&original[pieceGot.index], pieceGot.index, magnetlinkinfo, torrentinfo, ch)
+			this.sendGetPieceRequest(&original[pieceGot.index], pieceGot.index, magnetlinkinfo, torrentinfo, ch, false)
 			i--
 		}
 		tmpFile, _ := os.Create(filepath + "/" + magnetlinkinfo.infohash + "/" + strconv.Itoa(pieceGot.index) + ".piece")
@@ -224,7 +227,7 @@ func (this *Client) getPieces(availableServers kademlia.Set, torrentinfo map[str
 	return
 }
 
-func (this *Client) sendGetPieceRequest(serverStat *stat, index int, magnetlinkinfo *magnetLinkInfo, torrentinfo map[string]interface{}, ch chan FilePiece) {
+func (this *Client) sendGetPieceRequest(serverStat *stat, index int, magnetlinkinfo *magnetLinkInfo, torrentinfo map[string]interface{}, ch chan FilePiece, isdir bool) {
 	var randServer int
 	for {
 		randServer = rand.Intn(len(serverStat.servers))
@@ -234,7 +237,7 @@ func (this *Client) sendGetPieceRequest(serverStat *stat, index int, magnetlinki
 			serverStat.servers = append(serverStat.servers[:randServer], serverStat.servers[randServer+1:]...)
 		}
 	}
-	go this.getPieceFromRemote(magnetlinkinfo.infohash, index, serverStat.servers[randServer], torrentinfo["piece length"].(int), ch)
+	go this.getPieceFromRemote(magnetlinkinfo.infohash, index, serverStat.servers[randServer], torrentinfo["piece length"].(int), ch, isdir)
 }
 
 type FilePiece struct {
@@ -242,14 +245,20 @@ type FilePiece struct {
 	content []byte
 }
 
-func (this *Client) getPieceFromRemote(infohash string, pieceno int, ip string, length int, recv chan FilePiece) {
+func (this *Client) getPieceFromRemote(infohash string, pieceno int, ip string, length int, recv chan FilePiece, isdir bool) {
 	client, e := rpc.Dial("tcp", ip)
 	if e != nil {
 		fmt.Println("get piece ", pieceno, " from ", ip, " failed")
 		return
 	}
 	var content = make([]byte, 0)
-	err := client.Call("Peer.GetFilePiece", TorrentRequest{
+	var method string
+	if isdir {
+		method = "Peer.GetDirectoryPiece"
+	} else {
+		method = "Peer.GetFilePiece"
+	}
+	err := client.Call(method, TorrentRequest{
 		Infohash: infohash,
 		Index:    pieceno,
 		Length:   length,
@@ -270,4 +279,44 @@ func (this *Client) Init(port int) {
 	}
 	this.Node.Run()
 	this.peer.Init()
+}
+func assembleDirectory(path string, infohash string, torrent map[string]interface{}) {
+	piecenum := len(torrent["pieces"].(string)) / 20
+	piecesize := torrent["piece length"].(int)
+	files := torrent["files"].([]interface{})
+	fileno := 0
+	start := 0
+	buf := make([]byte, piecesize)
+	buf, _ = ioutil.ReadFile(path + "/" + infohash + "/" + strconv.Itoa(0) + ".piece")
+	var fileio *os.File
+	filepathSlice := files[0].(map[string]interface{})["path"].([]interface{})
+	directoryPath := path + "/" + assembleString(filepathSlice[:len(filepathSlice)-1])
+	RealFilePath := directoryPath + "/" + filepathSlice[len(filepathSlice)-1].(string)
+	os.MkdirAll(directoryPath, 0666)
+	fileio, _ = os.Create(RealFilePath)
+	fileLength := files[0].(map[string]interface{})["length"].(int)
+	for i := 0; i < piecenum; {
+
+		if start+fileLength >= piecesize {
+			fileio.Write(buf[start:])
+			i++
+			buf, _ = ioutil.ReadFile(path + "/" + infohash + "/" + strconv.Itoa(i) + ".piece")
+			fileLength -= piecesize - start
+			start = 0
+		} else {
+			fileio.Write(buf[start : start+fileLength])
+			fileio.Close()
+			fileno++
+			if fileno == len(files) {
+				break
+			}
+			filepathSlice = files[fileno].(map[string]interface{})["path"].([]interface{})
+			directoryPath = path + "/" + assembleString(filepathSlice[:len(filepathSlice)-1])
+			RealFilePath = directoryPath + "/" + filepathSlice[len(filepathSlice)-1].(string)
+			os.MkdirAll(directoryPath, 0666)
+			fileio, _ = os.Create(RealFilePath)
+			start += fileLength
+			fileLength = files[fileno].(map[string]interface{})["length"].(int)
+		}
+	}
 }

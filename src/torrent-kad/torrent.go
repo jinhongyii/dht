@@ -75,8 +75,10 @@ func recursiveGetFileinfo(stringBuilder *strings.Builder, prefix []string, dirPa
 @returns info-hash
 */
 func GenerateTorrentFile(filepath string) (string, bool, bool) {
+	f, _ := os.Stat(filepath)
+	isDirectory := f.IsDir()
 	file, err := os.Open(filepath)
-	if err != nil {
+	if err != nil && !isDirectory {
 		return "", false, false
 	}
 	file.Close()
@@ -84,8 +86,7 @@ func GenerateTorrentFile(filepath string) (string, bool, bool) {
 	stringbuilder.WriteString("d4:name")
 	originalPath := filepath
 	filename := path.Base(filepath)
-	f, _ := os.Stat(filepath)
-	isDirectory := f.IsDir()
+
 	stringbuilder.WriteString(strconv.Itoa(len(filename)) + ":" + filename)
 	stringbuilder.WriteString("12:piece length")
 	stringbuilder.WriteString("i" + strconv.Itoa(pieceSize) + "e")
@@ -146,5 +147,11 @@ func GetCompleteFileHash(filePath string) string {
 	if _, err := io.Copy(h, f); err != nil {
 		log.Fatal(err)
 	}
-	return new(big.Int).SetBytes(h.Sum(nil)).Text(16)
+	str := new(big.Int).SetBytes(h.Sum(nil)).Text(16)
+	if len(str) < 30 {
+		for i := 0; i < 30-len(str); i++ {
+			str = "0" + str
+		}
+	}
+	return str
 }
