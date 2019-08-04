@@ -18,7 +18,7 @@ func BenchmarkComprehensive(b *testing.B) {
 	}
 	var magnetLink string
 	for i := 1; i <= 1; i++ {
-		magnetLink, _ = clients[i].PutFile("../../../go-libp2p-kad-dht")
+		magnetLink, _ = clients[i].PutFile("c:/Users/jinho/Pictures")
 	}
 	for i := 2; i <= 2; i++ {
 		os.MkdirAll("../../test_cache/"+strconv.Itoa(i), 0666)

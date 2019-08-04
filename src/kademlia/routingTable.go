@@ -20,7 +20,7 @@ func (this *RoutingTable) update(header *Contact) {
 	this.buckets[bucketid].Insert(Contact{Ip: header.Ip, Id: header.Id})
 	if this.buckets[bucketid].Size() > K {
 
-		if online, contact := ping(Contact{Ip: this.Ip, Id: this.Id}, this.buckets[bucketid].Front().Value.(Contact).Ip); online {
+		if online, contact := Ping(Contact{Ip: this.Ip, Id: this.Id}, this.buckets[bucketid].Front().Value.(Contact).Ip); online {
 			this.buckets[bucketid].UndoInsertion()
 			this.buckets[bucketid].Insert(contact)
 		} else {

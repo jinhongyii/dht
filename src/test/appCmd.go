@@ -40,8 +40,8 @@ func main() {
 				fmt.Println("already joined in the network")
 			}
 		case "share":
-
-			if app.PutFile(cmd2) {
+			_, success := app.PutFile(cmd2)
+			if success {
 				fmt.Println("share successful")
 			} else {
 				fmt.Println("share fail")

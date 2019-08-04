@@ -10,7 +10,6 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"strconv"
-	"sync"
 	"time"
 )
 
@@ -42,12 +41,12 @@ func main() {
 	//syscall.Setsockopt(s,syscall.SOL_SOCKET,syscall.SO_REUSEADDR,&reuse,int32(unsafe.Sizeof(reuse)))
 	init1()
 	var nodes [160]*kademlia.Client
-	var wg = sync.WaitGroup{}
+
 	localAddress := chord.GetLocalAddress()
 	fmt.Println("local address: " + localAddress)
 	port := 3000
 	nodes[0] = common.NewNode(port)
-	nodes[0].Run(&wg)
+	nodes[0].Run()
 	nodes[0].Create()
 	kvMap := make(map[string]string)
 	var nodecnt = 1
@@ -57,7 +56,7 @@ func main() {
 			var index = i*15 + j + 1
 			port++
 			nodes[index] = common.NewNode(port)
-			nodes[index].Run(&wg)
+			nodes[index].Run()
 			if !nodes[index].Join(localAddress + ":" + strconv.Itoa(3000+5*i)) {
 				log.Fatal("join failed at ", 3000+5*i)
 			}
@@ -139,7 +138,7 @@ func main() {
 			//nodes[j+i*5+1].Dump()
 		}
 		nodecnt -= 5
-		time.Sleep(60 * time.Second)
+		time.Sleep(10 * time.Second)
 		for j := i*5 + 5; j <= i*15+15; j++ {
 			nodes[j].Dump()
 		}

@@ -37,7 +37,7 @@ type MemStore struct {
 }
 
 //固定重置replicatemap
-func (this *MemStore) put(key string, val string, republish bool, expire time.Time, replicate bool) {
+func (this *MemStore) put(key string, val string, republish bool, expire time.Time) {
 	//fmt.Println(this.ip," :put lock ")
 	this.StoreMux.Lock()
 	s, ok := this.storageMap[key]
@@ -56,9 +56,8 @@ func (this *MemStore) put(key string, val string, republish bool, expire time.Ti
 		delete(this.expireMap, pair)
 	} else if _, ok := this.republishMap[pair]; !ok { //本来不是个源
 
-		if replicate {
-			this.replicateMap[pair] = time.Now().Add(tReplicate)
-		}
+		this.replicateMap[pair] = time.Now().Add(tReplicate)
+
 	}
 
 }

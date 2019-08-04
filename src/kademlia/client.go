@@ -2,7 +2,7 @@ package kademlia
 
 //todo:add data validator
 import (
-	"dht/src/chord"
+	"chord"
 	"fmt"
 	"math/big"
 	"net"
@@ -79,7 +79,11 @@ func (this *Client) Run() {
 	}
 	go this.Server.Accept(this.listener)
 	this.Node_.Listening = true
-	this.Node_.RoutingTable.Ip = chord.GetLocalAddress() + this.Node_.RoutingTable.Ip
+	ip, err := chord.GetLocalPublicIpUseDnspod()
+	if err != nil {
+		ip = chord.GetLocalAddress()
+	}
+	this.Node_.RoutingTable.Ip = ip + this.Node_.RoutingTable.Ip
 	this.Node_.KvStorage.ip = this.Node_.RoutingTable.Ip //debug
 	this.Node_.RoutingTable.Id = chord.HashString(this.Node_.RoutingTable.Ip)
 }
