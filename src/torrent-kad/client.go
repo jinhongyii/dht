@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const initialNodeIp = "localhost:2000"
@@ -47,6 +48,7 @@ func (this *Client) PutFile(filePath string) (string, bool) {
 	magnetLinkBuilder.WriteString("&tr=")
 	magnetLinkBuilder.WriteString(initialNodeIp)
 	fmt.Println("magnetLink:", magnetLinkBuilder.String())
+
 	return magnetLinkBuilder.String(), true
 }
 
@@ -173,6 +175,16 @@ func assembleFile(path string, piecenum int, infohash string, totlen int, piece_
 	return content
 }
 func (this *Client) getPieces(availableServers kademlia.Set, torrentinfo map[string]interface{}, magnetlinkinfo *magnetLinkInfo, filepath string, isdir bool) {
+	ownPieces := make(IntSet)
+	files, err := ioutil.ReadDir(filepath + "/" + magnetlinkinfo.infohash)
+	if err == nil {
+		for _, f := range files {
+			pieceid, err := strconv.Atoi(f.Name()[:len(f.Name())-6])
+			if err == nil {
+				ownPieces[pieceid] = struct{}{}
+			}
+		}
+	}
 	availablePieces := make([]IntSet, availableServers.Len())
 	cnt := 0
 	pieceOwnStat := make([]stat, len(torrentinfo["pieces"].(string))/20)
@@ -205,12 +217,17 @@ func (this *Client) getPieces(availableServers kademlia.Set, torrentinfo map[str
 		return len(pieceOwnStat[i].servers) < len(pieceOwnStat[j].servers)
 	})
 	ch := make(chan FilePiece, 1)
+	cnt = 0
 	for _, i := range pieceOwnStat {
+		if _, ok := ownPieces[i.index]; ok {
+			continue
+		}
 		this.sendGetPieceRequest(&i, i.index, magnetlinkinfo, torrentinfo, ch, isdir)
+		cnt++
 	}
 	os.MkdirAll(filepath+"/"+magnetlinkinfo.infohash, 0666)
 
-	for i := 0; i < len(pieceOwnStat); i++ {
+	for i := 0; i < cnt; i++ {
 		pieceGot := <-ch
 		hash := sha1.Sum(pieceGot.content)
 		if string(hash[:]) != torrentinfo["pieces"].(string)[pieceGot.index*20:(pieceGot.index+1)*20] {
@@ -222,7 +239,7 @@ func (this *Client) getPieces(availableServers kademlia.Set, torrentinfo map[str
 		tmpFile.Close()
 
 		this.peer.downloadingStatus[magnetlinkinfo.infohash][pieceGot.index] = struct{}{}
-
+		time.Sleep(1 * time.Second)
 	}
 	return
 }
@@ -279,6 +296,7 @@ func (this *Client) Init(port int) {
 	}
 	this.Node.Run()
 	this.peer.Init()
+
 }
 func assembleDirectory(path string, infohash string, torrent map[string]interface{}) {
 	piecenum := len(torrent["pieces"].(string)) / 20
