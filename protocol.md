@@ -31,8 +31,8 @@
     }
     
     type PingReturn struct {
+    	Header  Contact
 	Success bool
-	Header  Contact
     }
     
     type KVPair struct {
@@ -41,15 +41,14 @@
     }
     
     type StoreRequest struct {
+    	    Header    Contact
 	    Pair      KVPair
-	    Header    Contact
 	    Expire    time.Time
-	    Replicate bool
     }
     
     type StoreReturn struct {
+        Header  Contact
     	Success bool
-    	Header  Contact
     }
     
     type FindNodeRequest struct {
