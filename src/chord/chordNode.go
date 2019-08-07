@@ -5,6 +5,8 @@ import (
 	"crypto/sha1"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"log"
 	"math/big"
 	"net"
 	"net/rpc"
@@ -490,30 +492,30 @@ func between(start, elt, end *big.Int, inclusive bool) bool {
 	}
 }
 func GetLocalPublicIpUseDnspod() (string, error) {
-	//timeout := time.Nanosecond * 30
-	//conn, err := net.DialTimeout("tcp", "ns1.dnspod.net:6666", timeout*time.Second)
-	//defer func() {
-	//	if x := recover(); x != nil {
-	//		log.Println("Can't get public ip", x)
-	//	}
-	//	if conn != nil {
-	//		conn.Close()
-	//	}
-	//}()
-	//if err == nil {
-	//	var bytes []byte
-	//	deadline := time.Now().Add(timeout * time.Second)
-	//	err = conn.SetDeadline(deadline)
-	//	if err != nil {
-	//		return "", err
-	//	}
-	//	bytes, err = ioutil.ReadAll(conn)
-	//	if err == nil {
-	//		return string(bytes), nil
-	//	}
-	//}
-	//return "", err
-	return GetLocalAddress(), nil
+	timeout := time.Nanosecond * 30
+	conn, err := net.DialTimeout("tcp", "ns1.dnspod.net:6666", timeout*time.Second)
+	defer func() {
+		if x := recover(); x != nil {
+			log.Println("Can't get public ip", x)
+		}
+		if conn != nil {
+			conn.Close()
+		}
+	}()
+	if err == nil {
+		var bytes []byte
+		deadline := time.Now().Add(timeout * time.Second)
+		err = conn.SetDeadline(deadline)
+		if err != nil {
+			return "", err
+		}
+		bytes, err = ioutil.ReadAll(conn)
+		if err == nil {
+			return string(bytes), nil
+		}
+	}
+	return "", err
+	//return GetLocalAddress(), nil
 }
 func GetLocalAddress() string {
 	var localaddress string

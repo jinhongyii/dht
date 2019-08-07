@@ -93,7 +93,8 @@ the name of rpc server is Peer
     
     type IntSet map[int]struct{}
     
-    GetTorrentFile(string)-> []byte
-    GetPieceStatus(string)-> IntSet
-    GetPiece(TorrentRequest)->[]byte
+    GetTorrentFile(*string)-> []byte
+    GetPieceStatus(*string)-> IntSet
+    GetPiece(*TorrentRequest)->[]byte
+    GetDirectoryPiece(*TorrentRequest)-> []byte
     
