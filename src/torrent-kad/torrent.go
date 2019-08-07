@@ -2,6 +2,7 @@ package torrent_kad
 
 import (
 	"crypto/sha1"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"kademlia"
@@ -75,7 +76,11 @@ func recursiveGetFileinfo(stringBuilder *strings.Builder, prefix []string, dirPa
 @returns info-hash
 */
 func GenerateTorrentFile(filepath string) (string, bool, bool) {
-	f, _ := os.Stat(filepath)
+	f, err := os.Stat(filepath)
+	if err != nil {
+		fmt.Println(err)
+		return "", false, false
+	}
 	isDirectory := f.IsDir()
 	file, err := os.Open(filepath)
 	if err != nil && !isDirectory {
@@ -107,11 +112,11 @@ func GenerateTorrentFile(filepath string) (string, bool, bool) {
 		stringbuilder.WriteString("i" + strconv.Itoa(int(f.Size())) + "e")
 	}
 	stringbuilder.WriteString("e")
-	newTorrentFile, _ := os.Create(originalPath + ".torrent")
+	newTorrentFile, _ := os.Create(path.Base(originalPath) + ".torrent")
 	newTorrentFile.WriteString(stringbuilder.String())
 	newTorrentFile.Close()
 
-	return GetCompleteFileHash(originalPath + ".torrent"), true, isDirectory
+	return GetCompleteFileHash(path.Base(originalPath) + ".torrent"), true, isDirectory
 }
 
 func GetDirectoryHash(hashbuilder *strings.Builder, filepath string) {

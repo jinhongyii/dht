@@ -33,16 +33,13 @@ func (this *Client) Get(key string) (Set, bool) {
 //	return true
 //}
 func (this *Client) Create() {
-	this.Node_.KvStorage.Init()
-	this.Node_.RoutingTable.Init()
 	go this.Node_.Refresh()
 	go this.Node_.Republish()
 	go this.Node_.Expire()
 	go this.Node_.Replicate()
 }
 func (this *Client) Join(ip string) bool {
-	this.Node_.KvStorage.Init()
-	this.Node_.RoutingTable.Init()
+
 	if !this.Node_.ping(ip) {
 		return false
 	}
@@ -78,7 +75,7 @@ func (this *Client) Run() {
 		return
 	}
 	go this.Server.Accept(this.listener)
-	this.Node_.Listening = true
+
 	ip, err := chord.GetLocalPublicIpUseDnspod()
 	if err != nil {
 		ip = chord.GetLocalAddress()
@@ -86,6 +83,9 @@ func (this *Client) Run() {
 	this.Node_.RoutingTable.Ip = ip + this.Node_.RoutingTable.Ip
 	this.Node_.KvStorage.ip = this.Node_.RoutingTable.Ip //debug
 	this.Node_.RoutingTable.Id = chord.HashString(this.Node_.RoutingTable.Ip)
+	this.Node_.KvStorage.Init()
+	this.Node_.RoutingTable.Init()
+	this.Node_.Listening = true
 }
 func (this *Client) Quit() {
 	this.Node_.Listening = false

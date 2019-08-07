@@ -31,6 +31,7 @@ func (this *Bdecoder) GetString() (string, error) {
 	}
 	str := make([]byte, length)
 	_, e = this.reader.Read(str)
+	//fmt.Println("read ",l)
 	if e != nil {
 		return "", e
 	}
@@ -109,6 +110,6 @@ func (this *Bdecoder) Get() (interface{}, error) {
 func NewDecoder(str string) *Bdecoder {
 	decoder := new(Bdecoder)
 	strreader := strings.NewReader(str)
-	decoder.reader = bufio.NewReader(strreader)
+	decoder.reader = bufio.NewReaderSize(strreader, len(str))
 	return decoder
 }

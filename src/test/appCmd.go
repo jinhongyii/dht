@@ -2,11 +2,19 @@ package main
 
 import (
 	"fmt"
+	"log"
+
+	"net/http"
+
+	_ "net/http/pprof"
 	"strconv"
 	torrent_kad "torrent-kad"
 )
 
 func main() {
+	go func() {
+		log.Println(http.ListenAndServe("localhost:7070", nil))
+	}()
 	var quit = false
 	var port = 2000
 	var app = new(torrent_kad.Client)

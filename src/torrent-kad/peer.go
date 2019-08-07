@@ -61,8 +61,8 @@ type basicFileInfo struct {
 	fileMux     sync.Mutex
 }
 
-func (this *Peer) GetTorrentFile(infoHash string, torrent *[]byte) error {
-	torrentPath := this.infoHashMap[infoHash].torrentPath
+func (this *Peer) GetTorrentFile(infoHash *string, torrent *[]byte) error {
+	torrentPath := this.infoHashMap[*infoHash].torrentPath
 	content, err := ioutil.ReadFile(torrentPath)
 	if err != nil {
 		return err
@@ -71,16 +71,18 @@ func (this *Peer) GetTorrentFile(infoHash string, torrent *[]byte) error {
 	}
 	return nil
 }
-func (this *Peer) GetPieceStatus(infohash string, availablePiece *IntSet) error {
-	_, ok := this.infoHashMap[infohash]
+func (this *Peer) GetPieceStatus(infohash *string, availablePiece *IntSet) error {
+	_, ok := this.infoHashMap[*infohash]
 	if !ok {
 		return errors.New("no such file")
 	}
-	pieces, exist := this.downloadingStatus[infohash]
-	if !exist {
+	pieces, exist := this.downloadingStatus[*infohash]
+	if exist {
 		*availablePiece = pieces
 	} else {
-		*availablePiece = nil
+		tmp := make(IntSet)
+		tmp[-1] = struct{}{}
+		*availablePiece = tmp
 	}
 	return nil
 }
@@ -92,11 +94,12 @@ type TorrentRequest struct {
 	Length   int
 }
 
-func (this *Peer) GetFilePiece(request TorrentRequest, content *[]byte) error {
+func (this *Peer) GetFilePiece(request *TorrentRequest, content *[]byte) error {
 	if _, ok := this.downloadingStatus[request.Infohash]; ok {
 		fileinfo := this.infoHashMap[request.Infohash]
 		path := fileinfo.filePath
 		fileinfo.fileMux.Lock()
+
 		*content, _ = ioutil.ReadFile(path + "/" + request.Infohash + "/" + strconv.Itoa(request.Index) + ".piece")
 		fileinfo.fileMux.Unlock()
 	} else {
@@ -111,7 +114,7 @@ func (this *Peer) GetFilePiece(request TorrentRequest, content *[]byte) error {
 	}
 	return nil
 }
-func (this *Peer) GetDirectoryPiece(request TorrentRequest, content *[]byte) error {
+func (this *Peer) GetDirectoryPiece(request *TorrentRequest, content *[]byte) error {
 	fileinfo := this.infoHashMap[request.Infohash]
 	if _, ok := this.downloadingStatus[request.Infohash]; ok {
 
@@ -148,8 +151,11 @@ func (this *Peer) GetDirectoryPiece(request TorrentRequest, content *[]byte) err
 				end = files[i].(map[string]interface{})["length"].(int)
 			}
 			fmt.Println(fileinfo.filePath + "/" + assembleString(files[i].(map[string]interface{})["path"].([]interface{})))
-			fileContent, _ := ioutil.ReadFile(fileinfo.filePath + "/" + assembleString(files[i].(map[string]interface{})["path"].([]interface{})))
-			*content = append(*content, fileContent[start:end]...)
+			fileContent := make([]byte, pieceSize)
+			f, _ := os.Open(fileinfo.filePath + "/" + assembleString(files[i].(map[string]interface{})["path"].([]interface{})))
+			f.ReadAt(fileContent, int64(start))
+			f.Close()
+			*content = append(*content, fileContent[:end-start]...)
 			cnt += files[i].(map[string]interface{})["length"].(int)
 			i++
 			start = 0
@@ -186,7 +192,7 @@ func (this *Peer) addFileInfo(infohash string, filePath string, torrentPath stri
 		isdirStr = "0"
 	}
 
-	this.basicLogger.WriteString(infohash + "\n" + filePath + ".torrent" + "\n" + filePath + "\n" +
+	this.basicLogger.WriteString(infohash + "\n" + torrentPath + "\n" + filePath + "\n" +
 		isdirStr + "\n" + strconv.Itoa(pieceSize) + "\n")
 }
 func (this *Peer) openFileio(infohash string) {

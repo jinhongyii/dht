@@ -274,7 +274,9 @@ type PingReturn struct {
 }
 
 func (this *Node) RPCPing(header *Contact, ret *PingReturn) error {
-	go this.RoutingTable.update(header)
+	if this.Listening {
+		go this.RoutingTable.update(header)
+	}
 	ret.Success = this.Listening
 	ret.Header = Contact{this.RoutingTable.Id, this.RoutingTable.Ip}
 	return nil
