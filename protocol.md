@@ -86,9 +86,9 @@ The name of the type which supports RPC method: **Node**
 the name of rpc server is Peer
 
     type TorrentRequest struct {
-        infohash string
-        index    int
-        length   int
+        Infohash string
+        Index    int
+        Length   int
     }
     
     type IntSet map[int]struct{}
@@ -96,5 +96,5 @@ the name of rpc server is Peer
     GetTorrentFile(*string)-> []byte
     GetPieceStatus(*string)-> IntSet
     GetPiece(*TorrentRequest)->[]byte
-    GetDirectoryPiece(*TorrentRequest)-> []byte
+
     

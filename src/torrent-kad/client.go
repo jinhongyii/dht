@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	initialNodeIp = "localhost:2000"
-	maxRequest    = 10
+	initialNodeIp = "47.102.137.47:2000"
+	maxRequest    = 5
 )
 
 type Client struct {
@@ -230,13 +230,14 @@ func (this *Client) getPieces(availableServers kademlia.Set, torrentinfo map[str
 	sending := 0
 	for _, i := range pieceOwnStat {
 		if _, ok := ownPieces[i.index]; ok {
+			sending++
 			continue
 		}
 		this.sendGetPieceRequest(&i, i.index, magnetlinkinfo, torrentinfo, ch, isdir)
 		time.Sleep(50 * time.Millisecond)
 		used++
 		sending++
-		if sending >= maxRequest {
+		if used >= maxRequest {
 			break
 		}
 	}
@@ -244,12 +245,21 @@ func (this *Client) getPieces(availableServers kademlia.Set, torrentinfo map[str
 
 	for used > 0 {
 		pieceGot := <-ch
+		fmt.Println("got ", pieceGot.index)
 		hash := sha1.Sum(pieceGot.content)
 		if string(hash[:]) != torrentinfo["pieces"].(string)[pieceGot.index*20:(pieceGot.index+1)*20] {
 			this.sendGetPieceRequest(&original[pieceGot.index], pieceGot.index, magnetlinkinfo, torrentinfo, ch, isdir)
+			fmt.Println("resend ", pieceGot.index)
 			continue
 		}
 		if sending < len(pieceOwnStat) {
+			for sending < len(pieceOwnStat) {
+				if _, ok := ownPieces[sending]; ok {
+					sending++
+					continue
+				}
+				break
+			}
 			this.sendGetPieceRequest(&pieceOwnStat[sending], pieceOwnStat[sending].index, magnetlinkinfo, torrentinfo, ch, isdir)
 			sending++
 			used++
@@ -259,6 +269,7 @@ func (this *Client) getPieces(availableServers kademlia.Set, torrentinfo map[str
 		tmpFile.Close()
 		used--
 		this.peer.downloadingStatus[magnetlinkinfo.infohash][pieceGot.index] = struct{}{}
+		//fmt.Println("used ",used)
 		//time.Sleep(1 * time.Second)
 	}
 	return
@@ -267,6 +278,7 @@ func (this *Client) getPieces(availableServers kademlia.Set, torrentinfo map[str
 func (this *Client) sendGetPieceRequest(serverStat *stat, index int, magnetlinkinfo *magnetLinkInfo, torrentinfo map[string]interface{}, ch chan FilePiece, isdir bool) {
 	var randServer int
 	for {
+		fmt.Println("send piece request ", index)
 		randServer = rand.Intn(len(serverStat.servers))
 		if this.Node.Ping(serverStat.servers[randServer]) {
 			break
@@ -289,12 +301,7 @@ func (this *Client) getPieceFromRemote(infohash string, pieceno int, ip string, 
 		return
 	}
 	var content = make([]byte, 0)
-	var method string
-	if isdir {
-		method = "Peer.GetDirectoryPiece"
-	} else {
-		method = "Peer.GetFilePiece"
-	}
+	var method = "Peer.GetPiece"
 	err := client.Call(method, &TorrentRequest{
 		Infohash: infohash,
 		Index:    pieceno,

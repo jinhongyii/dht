@@ -94,27 +94,7 @@ type TorrentRequest struct {
 	Length   int
 }
 
-func (this *Peer) GetFilePiece(request *TorrentRequest, content *[]byte) error {
-	if _, ok := this.downloadingStatus[request.Infohash]; ok {
-		fileinfo := this.infoHashMap[request.Infohash]
-		path := fileinfo.filePath
-		fileinfo.fileMux.Lock()
-
-		*content, _ = ioutil.ReadFile(path + "/" + request.Infohash + "/" + strconv.Itoa(request.Index) + ".piece")
-		fileinfo.fileMux.Unlock()
-	} else {
-		fileinfo := this.infoHashMap[request.Infohash]
-		*content = make([]byte, request.Length)
-		if !fileinfo.isDir {
-			fileinfo.fileMux.Lock()
-			file := fileinfo.fileio
-			file.ReadAt(*content, int64(request.Length*request.Index))
-			fileinfo.fileMux.Unlock()
-		}
-	}
-	return nil
-}
-func (this *Peer) GetDirectoryPiece(request *TorrentRequest, content *[]byte) error {
+func (this *Peer) GetPiece(request *TorrentRequest, content *[]byte) error {
 	fileinfo := this.infoHashMap[request.Infohash]
 	if _, ok := this.downloadingStatus[request.Infohash]; ok {
 
@@ -123,54 +103,61 @@ func (this *Peer) GetDirectoryPiece(request *TorrentRequest, content *[]byte) er
 		*content, _ = ioutil.ReadFile(path + "/" + request.Infohash + "/" + strconv.Itoa(request.Index) + ".piece")
 		fileinfo.fileMux.Unlock()
 	} else {
-		fileinfo.fileMux.Lock()
-		torrentbyte, err := ioutil.ReadFile(fileinfo.torrentPath)
-		if err != nil {
-			return nil
-		}
-		torrentinfo := processTorrentFile(torrentbyte)
-		files := torrentinfo["files"].([]interface{})
-		cnt := 0
-		i := 0
-		for i = 0; i < len(files); i++ {
+		if !fileinfo.isDir {
+			*content = make([]byte, request.Length)
+			if !fileinfo.isDir {
+				fileinfo.fileMux.Lock()
+				file := fileinfo.fileio
+				file.ReadAt(*content, int64(request.Length*request.Index))
+				fileinfo.fileMux.Unlock()
+			}
+		} else {
+			fileinfo.fileMux.Lock()
+			torrentbyte, err := ioutil.ReadFile(fileinfo.torrentPath)
+			if err != nil {
+				return nil
+			}
+			torrentinfo := processTorrentFile(torrentbyte)
+			files := torrentinfo["files"].([]interface{})
+			cnt := 0
+			i := 0
+			for i = 0; i < len(files); i++ {
 
-			fileLength := files[i].(map[string]interface{})["length"].(int)
-			if cnt+fileLength > request.Length*request.Index {
-				break
+				fileLength := files[i].(map[string]interface{})["length"].(int)
+				if cnt+fileLength > request.Length*request.Index {
+					break
+				}
+				cnt += fileLength
 			}
-			cnt += fileLength
+			start := request.Length*request.Index - cnt
+			var end int
+			for i < len(files) {
+				flag := false
+				if cnt+files[i].(map[string]interface{})["length"].(int) >= request.Length*(request.Index+1) {
+					end = request.Length*(request.Index+1) - cnt
+					flag = true
+				} else {
+					end = files[i].(map[string]interface{})["length"].(int)
+				}
+				fmt.Println(fileinfo.filePath + "/" + assembleString(files[i].(map[string]interface{})["path"].([]interface{})))
+				fileContent := make([]byte, pieceSize)
+				f, _ := os.Open(fileinfo.filePath + "/" + assembleString(files[i].(map[string]interface{})["path"].([]interface{})))
+				f.ReadAt(fileContent, int64(start))
+				f.Close()
+				*content = append(*content, fileContent[:end-start]...)
+				cnt += files[i].(map[string]interface{})["length"].(int)
+				i++
+				start = 0
+				if flag {
+					break
+				}
+			}
+			fileinfo.fileMux.Unlock()
 		}
-		start := request.Length*request.Index - cnt
-		var end int
-		for i < len(files) {
-			flag := false
-			if cnt+files[i].(map[string]interface{})["length"].(int) >= request.Length*(request.Index+1) {
-				end = request.Length*(request.Index+1) - cnt
-				flag = true
-			} else {
-				end = files[i].(map[string]interface{})["length"].(int)
-			}
-			fmt.Println(fileinfo.filePath + "/" + assembleString(files[i].(map[string]interface{})["path"].([]interface{})))
-			fileContent := make([]byte, pieceSize)
-			f, _ := os.Open(fileinfo.filePath + "/" + assembleString(files[i].(map[string]interface{})["path"].([]interface{})))
-			f.ReadAt(fileContent, int64(start))
-			f.Close()
-			*content = append(*content, fileContent[:end-start]...)
-			cnt += files[i].(map[string]interface{})["length"].(int)
-			i++
-			start = 0
-			if flag {
-				break
-			}
-		}
-		fileinfo.fileMux.Unlock()
 	}
-	//if len(*content)<fileinfo.pieceSize {
-	//	tmp:=make([]byte,fileinfo.pieceSize-len(*content))
-	//	*content=append(*content,tmp...)
-	//}
 	return nil
 }
+
 func assembleString(dirs []interface{}) string {
 	res := ""
 	for _, str := range dirs {
